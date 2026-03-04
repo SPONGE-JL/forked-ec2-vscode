@@ -26,24 +26,43 @@ fi
 # ANTHROPIC_MODEL 선택
 echo
 echo "사용할 모델을 선택하세요:"
-echo "  1) opus4.6   (global.anthropic.claude-opus-4-6-v1)"
-echo "  2) opus4.5   (global.anthropic.claude-opus-4-5-20251101-v1:0)"
-echo "  3) sonnet4.5 (global.anthropic.claude-sonnet-4-5-20250929-v1:0)"
+echo "  1) opus4.6 1M   (global.anthropic.claude-opus-4-6-v1[1m])"
+echo "  2) sonnet4.6 1M (global.anthropic.claude-sonnet-4-6[1m])"
 echo
-read -p "선택 (1, 2 또는 3, 기본값: 1): " MODEL_CHOICE
+read -p "선택 (1 또는 2, 기본값: 1): " MODEL_CHOICE
 
 case "$MODEL_CHOICE" in
     2)
-        SELECTED_MODEL="global.anthropic.claude-opus-4-5-20251101-v1:0"
-        echo "선택된 모델: opus4.5"
-        ;;
-    3)
-        SELECTED_MODEL="global.anthropic.claude-sonnet-4-5-20250929-v1:0"
-        echo "선택된 모델: sonnet4.5"
+        SELECTED_MODEL="global.anthropic.claude-sonnet-4-6[1m]"
+        echo "선택된 모델: sonnet4.6 1M"
         ;;
     *)
-        SELECTED_MODEL="anthropic.claude-opus-4-6-v1"
-        echo "선택된 모델: opus4.6"
+        SELECTED_MODEL="global.anthropic.claude-opus-4-6-v1[1m]"
+        echo "선택된 모델: opus4.6 1M"
+        ;;
+esac
+
+# CLAUDE_CODE_MAX_OUTPUT_TOKENS 선택
+echo
+echo "Max Output Tokens를 선택하세요:"
+echo "  1) 4096  (간단한 질의응답)"
+echo "  2) 16384 (일반적인 개발 작업)"
+echo "  3) 32768 (큰 파일 생성 및 리팩토링)"
+echo
+read -p "선택 (1, 2 또는 3, 기본값: 2): " TOKEN_CHOICE
+
+case "$TOKEN_CHOICE" in
+    1)
+        SELECTED_TOKENS=4096
+        echo "선택된 Max Output Tokens: 4096"
+        ;;
+    3)
+        SELECTED_TOKENS=32768
+        echo "선택된 Max Output Tokens: 32768"
+        ;;
+    *)
+        SELECTED_TOKENS=16384
+        echo "선택된 Max Output Tokens: 16384"
         ;;
 esac
 
@@ -69,8 +88,11 @@ export ANTHROPIC_API_KEY="${ANTHROPIC_KEY}"
 export AWS_BEARER_TOKEN_BEDROCK='${AWS_TOKEN}'
 export CLAUDE_CODE_USE_BEDROCK=1
 export ANTHROPIC_MODEL='${SELECTED_MODEL}'
+export ANTHROPIC_DEFAULT_OPUS_MODEL='global.anthropic.claude-opus-4-6-v1[1m]'
+export ANTHROPIC_DEFAULT_SONNET_MODEL='global.anthropic.claude-sonnet-4-6[1m]'
+export ANTHROPIC_DEFAULT_HAIKU_MODEL='global.anthropic.claude-haiku-4-5-20251001-v1:0'
 export ANTHROPIC_SMALL_FAST_MODEL='us.anthropic.claude-haiku-4-5-20251001-v1:0'
-export CLAUDE_CODE_MAX_OUTPUT_TOKENS=4096
+export CLAUDE_CODE_MAX_OUTPUT_TOKENS=${SELECTED_TOKENS}
 
 EOF
 
