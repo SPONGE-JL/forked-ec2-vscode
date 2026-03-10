@@ -177,11 +177,37 @@ aws cloudformation describe-stacks \
 
 ## 스택 삭제
 
-```bash
-# CDK 배포인 경우
-cd infra-cdk && npx cdk destroy VscodeServerStack --region <Region>
+### CDK 배포 삭제
 
-# CloudFormation 직접 배포인 경우
+```bash
+# 방법 1: CDK CLI
+cd ~/ec2_vscode/infra-cdk
+npm install
+npx cdk destroy VscodeServerStack --region <Region> --force
+
+# 방법 2: AWS CLI
+aws cloudformation delete-stack --stack-name VscodeServerStack --region <Region>
+```
+
+> CloudFront 배포가 포함되어 있어 삭제까지 10~15분 소요될 수 있습니다.
+
+### CDK Bootstrap 리소스 정리 (선택)
+
+스택 삭제 후에도 CDK bootstrap 리소스(`CDKToolkit` 스택, S3 버킷)는 남아있습니다.
+더 이상 CDK를 사용하지 않는다면 정리할 수 있습니다.
+
+```bash
+# S3 버킷 비우기 + 삭제
+aws s3 rm s3://cdk-hnb659fds-assets-<AccountId>-<Region> --recursive
+aws s3api delete-bucket --bucket cdk-hnb659fds-assets-<AccountId>-<Region> --region <Region>
+
+# CDKToolkit 스택 삭제
+aws cloudformation delete-stack --stack-name CDKToolkit --region <Region>
+```
+
+### CloudFormation 직접 배포 삭제
+
+```bash
 aws cloudformation delete-stack --stack-name mgmt-vpc --region ap-northeast-2
 ```
 
