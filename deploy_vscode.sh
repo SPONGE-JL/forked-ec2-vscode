@@ -1,287 +1,463 @@
 #!/bin/bash
-# =============================================================================
-# VSCode Server 배포 스크립트
-#
-# 인스턴스 타입 선택 (x86/ARM) 및 비밀번호 입력을 받아
-# UserData 바이너리 URL을 아키텍처에 맞게 자동 변환 후 배포합니다.
-#
-# Usage:
-#   bash ~/ec2_vscode/deploy_vscode.sh
-#   bash ~/ec2_vscode/deploy_vscode.sh --stack-name my-stack
-# =============================================================================
-set -euo pipefail
+set -e
+################################################################################
+#                                                                              #
+#   VSCode Server 인프라 배포 (CDK)                                             #
+#   Deploy VSCode Server Infrastructure via CDK                                #
+#                                                                              #
+#   대화형으로 계정, 리전, VPC, 인스턴스 타입을 선택합니다.                        #
+#   Interactively select account, region, VPC, and instance type.              #
+#                                                                              #
+#   CDK 프로젝트: infra-cdk/                                                    #
+#   기본값: t4g.2xlarge (ARM64 Graviton)                                        #
+#                                                                              #
+################################################################################
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-TEMPLATE_SRC="${SCRIPT_DIR}/vscode_server_secure.yaml"
-STACK_NAME="${1:---stack-name}"
+# -- 색상 / Colors ------------------------------------------------------------
+GREEN='\033[0;32m'; RED='\033[0;31m'; CYAN='\033[0;36m'; YELLOW='\033[1;33m'; NC='\033[0m'
+BOLD='\033[1m'; DIM='\033[2m'
+WORK_DIR="$(cd "$(dirname "$0")" && pwd)"
+CDK_DIR="$WORK_DIR/infra-cdk"
 
-# 인자 파싱
-if [ "$STACK_NAME" = "--stack-name" ]; then
-    STACK_NAME=""
-    while [[ $# -gt 0 ]]; do
-        case "$1" in
-            --stack-name) STACK_NAME="$2"; shift 2 ;;
-            *) shift ;;
-        esac
+echo ""
+echo -e "${CYAN}=================================================================${NC}"
+echo -e "${CYAN}   VSCode Server 인프라 배포 / Infrastructure Deployment${NC}"
+echo -e "${CYAN}=================================================================${NC}"
+echo ""
+
+###############################################################################
+#  [1/8] 사전 점검 / Pre-flight checks                                        #
+###############################################################################
+echo -e "${CYAN}[1/8] 사전 점검 / Pre-flight checks...${NC}"
+
+for cmd in aws node npm; do
+    if ! command -v "$cmd" &>/dev/null; then
+        echo -e "${RED}오류: $cmd 를 찾을 수 없습니다 / ERROR: $cmd not found${NC}"
+        exit 1
+    fi
+done
+echo "  aws:  $(aws --version 2>&1 | head -1)"
+echo "  node: $(node --version)  npm: $(npm --version)"
+
+###############################################################################
+#  [2/8] 계정 선택 / Account Selection                                         #
+###############################################################################
+echo ""
+echo -e "${CYAN}[2/8] AWS 계정 선택 / Account Selection...${NC}"
+echo ""
+
+CURRENT_ACCOUNT=$(aws sts get-caller-identity --query Account --output text 2>/dev/null || echo "")
+CURRENT_USER=$(aws sts get-caller-identity --query Arn --output text 2>/dev/null || echo "")
+
+if [ -n "$CURRENT_ACCOUNT" ]; then
+    echo -e "  현재 자격 증명 / Current credentials:"
+    echo "    계정 / Account: $CURRENT_ACCOUNT"
+    echo "    사용자 / User:  $CURRENT_USER"
+    echo ""
+fi
+
+echo -e "${BOLD}  계정 옵션 선택 / Select account option:${NC}"
+echo ""
+echo "    1) 현재 자격 증명 사용 / Use current credentials ($CURRENT_ACCOUNT)"
+echo "    2) AWS 프로파일 선택 / Select AWS profile"
+echo "    3) Access Key 직접 입력 / Enter Access Key manually"
+echo ""
+read -p "  번호 입력 / Enter number [1]: " ACCT_CHOICE
+ACCT_CHOICE="${ACCT_CHOICE:-1}"
+
+case "$ACCT_CHOICE" in
+    2)
+        echo ""
+        echo -e "  ${CYAN}사용 가능한 프로파일 / Available profiles:${NC}"
+        PROFILES=($(aws configure list-profiles 2>/dev/null || echo "default"))
+        for i in "${!PROFILES[@]}"; do
+            PROF_ACCT=$(aws sts get-caller-identity --profile "${PROFILES[$i]}" --query Account --output text 2>/dev/null || echo "?")
+            printf "    %2d) %-20s (계정 / Account: %s)\n" $((i+1)) "${PROFILES[$i]}" "$PROF_ACCT"
+        done
+        echo ""
+        read -p "  프로파일 번호 / Profile number: " PROF_CHOICE
+        if [[ "$PROF_CHOICE" =~ ^[0-9]+$ ]] && [ "$PROF_CHOICE" -ge 1 ] && [ "$PROF_CHOICE" -le "${#PROFILES[@]}" ]; then
+            export AWS_PROFILE="${PROFILES[$((PROF_CHOICE-1))]}"
+            echo -e "  ${GREEN}프로파일 설정: $AWS_PROFILE${NC}"
+        fi
+        ;;
+    3)
+        echo ""
+        read -p "  AWS Access Key ID: " INPUT_ACCESS_KEY
+        read -sp "  AWS Secret Access Key: " INPUT_SECRET_KEY
+        echo ""
+        read -p "  리전 (예: ap-northeast-2): " INPUT_REGION
+
+        aws configure set aws_access_key_id "$INPUT_ACCESS_KEY" --profile vscode-deploy
+        aws configure set aws_secret_access_key "$INPUT_SECRET_KEY" --profile vscode-deploy
+        aws configure set region "${INPUT_REGION:-ap-northeast-2}" --profile vscode-deploy
+        export AWS_PROFILE="vscode-deploy"
+        echo -e "  ${GREEN}자격 증명 설정 완료 / Credentials configured${NC}"
+        ;;
+    *)
+        echo "  현재 자격 증명 사용 / Using current credentials"
+        ;;
+esac
+
+ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text 2>/dev/null || echo "unknown")
+if [ "$ACCOUNT_ID" = "unknown" ]; then
+    echo -e "${RED}오류: AWS 계정 확인 실패 / ERROR: Cannot verify AWS account${NC}"
+    exit 1
+fi
+echo -e "  ${GREEN}계정 확인 / Account verified: $ACCOUNT_ID${NC}"
+
+###############################################################################
+#  [3/8] 리전 선택 / Region Selection                                          #
+###############################################################################
+echo ""
+echo -e "${CYAN}[3/8] 리전 선택 / Region Selection...${NC}"
+echo ""
+echo -e "${BOLD}  배포할 리전을 선택하세요 / Select deployment region:${NC}"
+echo ""
+
+REGIONS=(
+    "ap-northeast-2:서울 / Seoul"
+    "ap-northeast-1:도쿄 / Tokyo"
+    "ap-northeast-3:오사카 / Osaka"
+    "ap-southeast-1:싱가포르 / Singapore"
+    "ap-southeast-2:시드니 / Sydney"
+    "ap-south-1:뭄바이 / Mumbai"
+    "us-east-1:버지니아 / N. Virginia"
+    "us-east-2:오하이오 / Ohio"
+    "us-west-2:오레곤 / Oregon"
+    "eu-west-1:아일랜드 / Ireland"
+    "eu-central-1:프랑크푸르트 / Frankfurt"
+    "eu-west-2:런던 / London"
+)
+
+for i in "${!REGIONS[@]}"; do
+    RCODE="${REGIONS[$i]%%:*}"
+    RNAME="${REGIONS[$i]##*:}"
+    MARKER=""
+    [ "$RCODE" = "ap-northeast-2" ] && MARKER=" ${YELLOW}(기본값 / default)${NC}"
+    printf "    %2d) %-20s %s" $((i+1)) "$RCODE" "$RNAME"
+    echo -e "$MARKER"
+done
+echo ""
+read -p "  번호 입력 / Enter number [1]: " REGION_CHOICE
+REGION_CHOICE="${REGION_CHOICE:-1}"
+
+if [[ "$REGION_CHOICE" =~ ^[0-9]+$ ]] && [ "$REGION_CHOICE" -ge 1 ] && [ "$REGION_CHOICE" -le "${#REGIONS[@]}" ]; then
+    REGION="${REGIONS[$((REGION_CHOICE-1))]%%:*}"
+else
+    REGION="ap-northeast-2"
+fi
+
+echo -e "  ${GREEN}선택된 리전 / Selected: $REGION${NC}"
+export AWS_DEFAULT_REGION="$REGION"
+
+###############################################################################
+#  [4/8] VPC 선택 / VPC Selection                                              #
+###############################################################################
+echo ""
+echo -e "${CYAN}[4/8] VPC 선택 / VPC Selection...${NC}"
+echo ""
+echo -e "${BOLD}  VPC 옵션을 선택하세요 / Select VPC option:${NC}"
+echo ""
+echo "    1) 새 VPC 생성 / Create new VPC (10.254.0.0/16, 2 Public + 2 Private subnets)"
+echo "    2) 기존 VPC 선택 / Use existing VPC from account"
+echo ""
+read -p "  번호 입력 / Enter number [1]: " VPC_CHOICE
+VPC_CHOICE="${VPC_CHOICE:-1}"
+
+USE_EXISTING_VPC="false"
+EXISTING_VPC_ID=""
+SKIP_VPC_ENDPOINTS="false"
+VPC_CIDR=""
+
+if [ "$VPC_CHOICE" = "2" ]; then
+    echo ""
+    echo -e "  ${CYAN}$REGION 리전의 VPC 목록 조회 중... / Listing VPCs in $REGION...${NC}"
+    echo ""
+
+    VPC_JSON=$(aws ec2 describe-vpcs --region "$REGION" --output json 2>/dev/null)
+    VPC_COUNT=$(echo "$VPC_JSON" | python3 -c "import json,sys;print(len(json.load(sys.stdin).get('Vpcs',[])))")
+
+    if [ "$VPC_COUNT" = "0" ]; then
+        echo -e "  ${YELLOW}VPC가 없습니다. 새 VPC를 생성합니다.${NC}"
+    else
+        echo "$VPC_JSON" | python3 -c "
+import json, sys
+vpcs = json.load(sys.stdin).get('Vpcs', [])
+for i, v in enumerate(vpcs):
+    name = next((t['Value'] for t in v.get('Tags', []) if t['Key'] == 'Name'), '(이름 없음 / no name)')
+    cidr = v.get('CidrBlock', '?')
+    vid = v['VpcId']
+    default = ' [기본 / default]' if v.get('IsDefault') else ''
+    print('    {:2d}) {:25s} {:18s} {}{}'.format(i+1, vid, cidr, name, default))
+"
+        echo ""
+
+        VPC_IDS=($(echo "$VPC_JSON" | python3 -c "import json,sys;[print(v['VpcId']) for v in json.load(sys.stdin).get('Vpcs',[])]"))
+
+        read -p "  VPC 번호 선택 / Select VPC number: " VPC_SELECT
+
+        if [[ "$VPC_SELECT" =~ ^[0-9]+$ ]] && [ "$VPC_SELECT" -ge 1 ] && [ "$VPC_SELECT" -le "${#VPC_IDS[@]}" ]; then
+            EXISTING_VPC_ID="${VPC_IDS[$((VPC_SELECT-1))]}"
+            USE_EXISTING_VPC="true"
+
+            echo ""
+            echo -e "  ${CYAN}$EXISTING_VPC_ID 서브넷 정보 / Subnet info:${NC}"
+            aws ec2 describe-subnets --filters "Name=vpc-id,Values=$EXISTING_VPC_ID" \
+                --region "$REGION" --output json 2>/dev/null | python3 -c "
+import json, sys
+subnets = json.load(sys.stdin).get('Subnets', [])
+pub = [s for s in subnets if s.get('MapPublicIpOnLaunch')]
+priv = [s for s in subnets if not s.get('MapPublicIpOnLaunch')]
+print('    Public:  {} subnets'.format(len(pub)))
+for s in pub:
+    name = next((t['Value'] for t in s.get('Tags',[]) if t['Key']=='Name'), '')
+    print('      {} {} {}'.format(s['SubnetId'], s['AvailabilityZone'], name))
+print('    Private: {} subnets'.format(len(priv)))
+for s in priv:
+    name = next((t['Value'] for t in s.get('Tags',[]) if t['Key']=='Name'), '')
+    print('      {} {} {}'.format(s['SubnetId'], s['AvailabilityZone'], name))
+
+if len(pub) < 1 or len(priv) < 1:
+    print()
+    print('    WARNING: Need at least 1 public + 1 private subnet.')
+"
+        else
+            echo -e "  ${YELLOW}잘못된 선택. 새 VPC 생성.${NC}"
+        fi
+    fi
+fi
+
+echo ""
+if [ "$USE_EXISTING_VPC" = "true" ]; then
+    echo -e "  ${GREEN}기존 VPC 사용 / Using existing VPC: $EXISTING_VPC_ID${NC}"
+
+    VPC_CIDR=$(aws ec2 describe-vpcs --vpc-ids "$EXISTING_VPC_ID" --region "$REGION" \
+        --query "Vpcs[0].CidrBlock" --output text 2>/dev/null || echo "10.0.0.0/8")
+    echo "  VPC CIDR: $VPC_CIDR"
+
+    echo -e "  ${CYAN}VPC Endpoint 확인 중... / Checking VPC Endpoints...${NC}"
+    EXISTING_ENDPOINTS=$(aws ec2 describe-vpc-endpoints \
+        --filters "Name=vpc-id,Values=$EXISTING_VPC_ID" "Name=vpc-endpoint-state,Values=available" \
+        --query "VpcEndpoints[*].ServiceName" --output text --region "$REGION" 2>/dev/null || echo "")
+
+    if echo "$EXISTING_ENDPOINTS" | grep -q "ssm" && \
+       echo "$EXISTING_ENDPOINTS" | grep -q "ssmmessages" && \
+       echo "$EXISTING_ENDPOINTS" | grep -q "ec2messages"; then
+        SKIP_VPC_ENDPOINTS="true"
+        echo -e "  ${GREEN}모든 SSM Endpoint 존재. 생성 건너뜀.${NC}"
+    elif echo "$EXISTING_ENDPOINTS" | grep -qE "ssm|ssmmessages|ec2messages"; then
+        SKIP_VPC_ENDPOINTS="true"
+        echo -e "  ${YELLOW}일부 Endpoint 존재. 충돌 방지를 위해 CDK에서 건너뜁니다.${NC}"
+    fi
+else
+    echo -e "  ${GREEN}새 VPC 생성 / Creating new VPC (10.254.0.0/16)${NC}"
+fi
+
+###############################################################################
+#  [5/8] 인스턴스 타입 선택 / Instance Type Selection                           #
+###############################################################################
+echo ""
+echo -e "${CYAN}[5/8] 인스턴스 타입 선택 / Instance Type Selection...${NC}"
+echo ""
+echo -e "  ${BOLD}EC2 인스턴스 타입을 선택하세요 / Select EC2 instance type:${NC}"
+echo ""
+
+INSTANCE_TYPES=(
+    "t4g.2xlarge:ARM64 Graviton, 8 vCPU, 32GB  (기본값 / default)"
+    "t4g.xlarge:ARM64 Graviton, 4 vCPU, 16GB"
+    "m7g.xlarge:ARM64 Graviton, 4 vCPU, 16GB"
+    "m7g.2xlarge:ARM64 Graviton, 8 vCPU, 32GB"
+    "t3.xlarge:x86_64 Intel, 4 vCPU, 16GB"
+    "t3.2xlarge:x86_64 Intel, 8 vCPU, 32GB"
+    "m7i.xlarge:x86_64 Intel, 4 vCPU, 16GB"
+    "m7i.2xlarge:x86_64 Intel, 8 vCPU, 32GB"
+)
+
+for i in "${!INSTANCE_TYPES[@]}"; do
+    ITYPE="${INSTANCE_TYPES[$i]%%:*}"
+    IDESC="${INSTANCE_TYPES[$i]##*:}"
+    printf "    %2d) %-16s %s\n" $((i+1)) "$ITYPE" "$IDESC"
+done
+echo ""
+echo "    0) 직접 입력 / Enter custom type"
+echo ""
+read -p "  번호 입력 / Enter number [1]: " ITYPE_CHOICE
+ITYPE_CHOICE="${ITYPE_CHOICE:-1}"
+
+if [ "$ITYPE_CHOICE" = "0" ]; then
+    read -p "  인스턴스 타입 입력 / Enter instance type: " INSTANCE_TYPE
+    INSTANCE_TYPE="${INSTANCE_TYPE:-t4g.2xlarge}"
+elif [[ "$ITYPE_CHOICE" =~ ^[0-9]+$ ]] && [ "$ITYPE_CHOICE" -ge 1 ] && [ "$ITYPE_CHOICE" -le "${#INSTANCE_TYPES[@]}" ]; then
+    INSTANCE_TYPE="${INSTANCE_TYPES[$((ITYPE_CHOICE-1))]%%:*}"
+else
+    INSTANCE_TYPE="t4g.2xlarge"
+fi
+
+echo -e "  ${GREEN}선택된 인스턴스 / Selected: $INSTANCE_TYPE${NC}"
+
+###############################################################################
+#  [6/8] CDK CLI 설치 / Install CDK CLI                                        #
+###############################################################################
+echo ""
+echo -e "${CYAN}[6/8] CDK CLI 설치 / Install CDK CLI...${NC}"
+
+if command -v cdk &>/dev/null; then
+    echo "  이미 설치됨 / Already installed: $(cdk --version)"
+else
+    sudo npm install -g aws-cdk
+    echo "  설치 완료 / Installed: $(cdk --version)"
+fi
+
+###############################################################################
+#  [7/8] 설정 확인 / Confirm Configuration                                     #
+###############################################################################
+echo ""
+echo -e "${CYAN}[7/8] 설정 확인 / Confirm Configuration...${NC}"
+
+# CloudFront Prefix List
+CF_PREFIX_LIST=$(aws ec2 describe-managed-prefix-lists \
+    --filters "Name=prefix-list-name,Values=com.amazonaws.global.cloudfront.origin-facing" \
+    --query "PrefixLists[0].PrefixListId" --output text --region "$REGION" 2>/dev/null || echo "")
+if [ -z "$CF_PREFIX_LIST" ] || [ "$CF_PREFIX_LIST" = "None" ]; then
+    echo -e "${RED}오류: CloudFront prefix list 없음 / Not found${NC}"
+    exit 1
+fi
+
+# VSCode Password
+VSCODE_PASSWORD="${VSCODE_PASSWORD:-}"
+if [ -z "$VSCODE_PASSWORD" ]; then
+    echo ""
+    while true; do
+        read -sp "  VSCode 비밀번호 (8자 이상) / Password (min 8 chars): " VSCODE_PASSWORD
+        echo ""
+        if [ ${#VSCODE_PASSWORD} -ge 8 ]; then
+            read -sp "  비밀번호 확인 / Confirm password: " VSCODE_PASSWORD_CONFIRM
+            echo ""
+            if [ "$VSCODE_PASSWORD" = "$VSCODE_PASSWORD_CONFIRM" ]; then
+                break
+            else
+                echo -e "  ${RED}비밀번호 불일치 / Passwords do not match${NC}"
+            fi
+        else
+            echo -e "  ${RED}8자 이상 입력 / Must be 8+ characters${NC}"
+        fi
     done
 fi
 
-# =============================================================================
-# 1. 스택 이름 입력
-# =============================================================================
-if [ -z "${STACK_NAME}" ]; then
-    read -rp "Stack name [mgmt-vpc]: " STACK_NAME
-    STACK_NAME="${STACK_NAME:-mgmt-vpc}"
-fi
-echo "Stack: ${STACK_NAME}"
-
-# =============================================================================
-# 2. Region 선택
-# =============================================================================
-DEFAULT_REGION="${AWS_REGION:-$(aws configure get region 2>/dev/null || echo "ap-northeast-2")}"
 echo ""
-echo "=== Region 선택 ==="
-echo ""
-echo "    1) ap-northeast-2  (서울)"
-echo "    2) ap-northeast-1  (도쿄)"
-echo "    3) us-east-1       (버지니아)"
-echo "    4) us-west-2       (오레곤)"
-echo "    5) eu-west-1       (아일랜드)"
-echo "    6) 직접 입력"
-echo ""
-
-while true; do
-    read -rp "선택 [1-6, default=1 (${DEFAULT_REGION})]: " REGION_CHOICE
-    REGION_CHOICE="${REGION_CHOICE:-1}"
-
-    case "${REGION_CHOICE}" in
-        1) AWS_REGION="ap-northeast-2" ; break ;;
-        2) AWS_REGION="ap-northeast-1" ; break ;;
-        3) AWS_REGION="us-east-1"      ; break ;;
-        4) AWS_REGION="us-west-2"      ; break ;;
-        5) AWS_REGION="eu-west-1"      ; break ;;
-        6)
-            read -rp "Region 입력 (예: ap-southeast-1): " AWS_REGION
-            if [ -n "${AWS_REGION}" ]; then
-                break
-            else
-                echo "ERROR: Region을 입력하세요."
-            fi
-            ;;
-        *) echo "ERROR: 1~6 사이 숫자를 입력하세요." ;;
-    esac
-done
-export AWS_REGION
-echo "  Region: ${AWS_REGION}"
-
-# =============================================================================
-# 3. 비밀번호 입력
-# =============================================================================
-echo ""
-while true; do
-    read -rsp "VSCode Password (8자 이상): " VSCODE_PASSWORD
-    echo ""
-    if [ "${#VSCODE_PASSWORD}" -ge 8 ]; then
-        read -rsp "Password 확인: " VSCODE_PASSWORD_CONFIRM
-        echo ""
-        if [ "${VSCODE_PASSWORD}" = "${VSCODE_PASSWORD_CONFIRM}" ]; then
-            break
-        else
-            echo "ERROR: 비밀번호가 일치하지 않습니다. 다시 입력하세요."
-        fi
-    else
-        echo "ERROR: 8자 이상 입력하세요."
-    fi
-done
-
-# =============================================================================
-# 4. 인스턴스 타입 선택
-# =============================================================================
-echo ""
-echo "=== 인스턴스 타입 선택 ==="
-echo ""
-echo "  [x86_64 (Intel)]"
-echo "    1) t3.large"
-echo "    2) t3.xlarge"
-echo "    3) t3.2xlarge"
-echo "    4) m7i.xlarge"
-echo "    5) m7i.2xlarge"
-echo ""
-echo "  [ARM64 (Graviton)]"
-echo "    6) t4g.xlarge"
-echo "    7) t4g.2xlarge"
-echo "    8) m7g.xlarge"
-echo "    9) m7g.2xlarge"
-echo ""
-
-while true; do
-    read -rp "선택 [1-9, default=5 (m7i.2xlarge)]: " INSTANCE_CHOICE
-    INSTANCE_CHOICE="${INSTANCE_CHOICE:-5}"
-
-    case "${INSTANCE_CHOICE}" in
-        1) INSTANCE_TYPE="t3.large";    ARCH="x86_64" ; break ;;
-        2) INSTANCE_TYPE="t3.xlarge";   ARCH="x86_64" ; break ;;
-        3) INSTANCE_TYPE="t3.2xlarge";  ARCH="x86_64" ; break ;;
-        4) INSTANCE_TYPE="m7i.xlarge";  ARCH="x86_64" ; break ;;
-        5) INSTANCE_TYPE="m7i.2xlarge"; ARCH="x86_64" ; break ;;
-        6) INSTANCE_TYPE="t4g.xlarge";  ARCH="arm64"  ; break ;;
-        7) INSTANCE_TYPE="t4g.2xlarge"; ARCH="arm64"  ; break ;;
-        8) INSTANCE_TYPE="m7g.xlarge";  ARCH="arm64"  ; break ;;
-        9) INSTANCE_TYPE="m7g.2xlarge"; ARCH="arm64"  ; break ;;
-        *) echo "ERROR: 1~9 사이 숫자를 입력하세요." ;;
-    esac
-done
-
-echo ""
-echo "  Instance Type : ${INSTANCE_TYPE}"
-echo "  Architecture  : ${ARCH}"
-
-# =============================================================================
-# 5. CloudFront Prefix List ID 조회
-# =============================================================================
-echo ""
-echo "CloudFront Prefix List 조회 중..."
-CF_PREFIX_LIST_ID=$(aws ec2 describe-managed-prefix-lists \
-    --query "PrefixLists[?PrefixListName=='com.amazonaws.global.cloudfront.origin-facing'].PrefixListId" \
-    --output text --region "${AWS_REGION}")
-
-if [ -z "${CF_PREFIX_LIST_ID}" ] || [ "${CF_PREFIX_LIST_ID}" = "None" ]; then
-    echo "ERROR: CloudFront origin-facing prefix list를 찾을 수 없습니다."
-    exit 1
-fi
-echo "  Prefix List ID: ${CF_PREFIX_LIST_ID}"
-
-# =============================================================================
-# 6. 아키텍처별 AMI/바이너리 URL 설정
-# =============================================================================
-if [ "${ARCH}" = "arm64" ]; then
-    AMI_SSM_PATH="/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-6.1-arm64"
-
-    AWSCLI_URL="https://awscli.amazonaws.com/awscli-exe-linux-aarch64.zip"
-    SSM_PLUGIN_URL="https://s3.amazonaws.com/session-manager-downloads/plugin/latest/linux_arm64/session-manager-plugin.rpm"
-    CODESERVER_TAR="code-server-4.106.3-linux-arm64.tar.gz"
-    CODESERVER_DIR="code-server-4.106.3-linux-arm64"
-    CODESERVER_URL="https://github.com/coder/code-server/releases/download/v4.106.3/${CODESERVER_TAR}"
-    CW_AGENT_URL="https://s3.amazonaws.com/amazoncloudwatch-agent/amazon_linux/arm64/latest/amazon-cloudwatch-agent.rpm"
-    KIRO_URL="https://desktop-release.q.us-east-1.amazonaws.com/latest/kirocli-aarch64-linux.zip"
+echo -e "  ${BOLD}┌─────────────────────────────────────────────────┐${NC}"
+echo -e "  ${BOLD}│  배포 설정 요약 / Deployment Summary             │${NC}"
+echo -e "  ${BOLD}├─────────────────────────────────────────────────┤${NC}"
+echo "  │  계정 / Account:    $ACCOUNT_ID"
+echo "  │  리전 / Region:     $REGION"
+echo "  │  인스턴스 / Type:   $INSTANCE_TYPE"
+echo "  │  CF Prefix List:    $CF_PREFIX_LIST"
+if [ -n "$EXISTING_VPC_ID" ]; then
+    echo "  │  VPC:               $EXISTING_VPC_ID (기존 / existing)"
 else
-    AMI_SSM_PATH="/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-6.1-x86_64"
-
-    AWSCLI_URL="https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip"
-    SSM_PLUGIN_URL="https://s3.amazonaws.com/session-manager-downloads/plugin/latest/linux_64bit/session-manager-plugin.rpm"
-    CODESERVER_TAR="code-server-4.106.3-linux-amd64.tar.gz"
-    CODESERVER_DIR="code-server-4.106.3-linux-amd64"
-    CODESERVER_URL="https://github.com/coder/code-server/releases/download/v4.106.3/${CODESERVER_TAR}"
-    CW_AGENT_URL="https://s3.amazonaws.com/amazoncloudwatch-agent/amazon_linux/amd64/latest/amazon-cloudwatch-agent.rpm"
-    KIRO_URL="https://desktop-release.q.us-east-1.amazonaws.com/latest/kirocli-x86_64-linux.zip"
+    echo "  │  VPC:               새로 생성 / new (10.254.0.0/16)"
 fi
-
-# =============================================================================
-# 7. 템플릿 복사 후 아키텍처별 URL 치환
-# =============================================================================
-TEMPLATE_WORK="/tmp/vscode_server_secure_${ARCH}.yaml"
-cp "${TEMPLATE_SRC}" "${TEMPLATE_WORK}"
-
-# AMI SSM 파라미터 경로
-sed -i "s|al2023-ami-kernel-6.1-x86_64|$(basename "${AMI_SSM_PATH}")|g" "${TEMPLATE_WORK}"
-
-# AWS CLI
-sed -i "s|awscli-exe-linux-x86_64.zip|$(basename "${AWSCLI_URL}")|g" "${TEMPLATE_WORK}"
-
-# SSM Plugin
-sed -i "s|plugin/latest/linux_64bit/session-manager-plugin.rpm|plugin/latest/$(echo "${SSM_PLUGIN_URL}" | grep -oP 'latest/\K[^$]+')|g" "${TEMPLATE_WORK}"
-
-# code-server (tar.gz 파일명 + 디렉토리명)
-sed -i "s|code-server-4.106.3-linux-amd64\.tar\.gz|${CODESERVER_TAR}|g" "${TEMPLATE_WORK}"
-sed -i "s|code-server-4.106.3-linux-amd64|${CODESERVER_DIR}|g" "${TEMPLATE_WORK}"
-
-# CloudWatch Agent
-sed -i "s|amazon_linux/amd64/latest/amazon-cloudwatch-agent.rpm|amazon_linux/${ARCH}/latest/amazon-cloudwatch-agent.rpm|g" "${TEMPLATE_WORK}"
-
-# kiro-cli
-sed -i "s|kirocli-x86_64-linux.zip|$(basename "${KIRO_URL}")|g" "${TEMPLATE_WORK}"
-
+echo "  │  비밀번호 / PW:     $(printf '*%.0s' $(seq 1 ${#VSCODE_PASSWORD}))"
+echo -e "  ${BOLD}└─────────────────────────────────────────────────┘${NC}"
 echo ""
-echo "  Template: ${TEMPLATE_WORK} (${ARCH} 바이너리 적용)"
+read -p "  배포 시작? / Start deployment? (y/n) [y]: " CONFIRM
+CONFIRM="${CONFIRM:-y}"
+[ "$CONFIRM" != "y" ] && [ "$CONFIRM" != "Y" ] && { echo "  취소 / Cancelled."; exit 0; }
 
-# =============================================================================
-# 8. 배포 확인
-# =============================================================================
+###############################################################################
+#  [8/8] CDK 빌드 + 부트스트랩 + 배포 / Build + Bootstrap + Deploy             #
+###############################################################################
 echo ""
-echo "============================================="
-echo "  배포 요약"
-echo "============================================="
-echo "  Stack Name    : ${STACK_NAME}"
-echo "  Region        : ${AWS_REGION}"
-echo "  Instance Type : ${INSTANCE_TYPE} (${ARCH})"
-echo "  AMI           : ${AMI_SSM_PATH}"
-echo "  CF Prefix List: ${CF_PREFIX_LIST_ID}"
-echo "============================================="
-echo ""
-read -rp "배포를 진행하시겠습니까? (y/N): " CONFIRM
-if [[ ! "${CONFIRM}" =~ ^[yY]$ ]]; then
-    echo "배포가 취소되었습니다."
-    rm -f "${TEMPLATE_WORK}"
-    exit 0
-fi
+echo -e "${CYAN}[8/8] CDK 빌드 + 배포 / Build + Deploy...${NC}"
 
-# =============================================================================
-# 9. CloudFormation 배포
-# =============================================================================
-echo ""
-echo "CloudFormation 배포 중... (Stack: ${STACK_NAME})"
+cd "$CDK_DIR"
+npm install --quiet
+npx tsc
+echo "  빌드 완료 / Build complete."
 
-output=$(aws cloudformation deploy \
-    --stack-name "${STACK_NAME}" \
-    --template-file "${TEMPLATE_WORK}" \
-    --capabilities CAPABILITY_NAMED_IAM \
-    --parameter-overrides \
-        "CloudFrontPrefixListId=${CF_PREFIX_LIST_ID}" \
-        "InstanceType=${INSTANCE_TYPE}" \
-        "VSCodePassword=${VSCODE_PASSWORD}" \
-        "AmazonLinux2023AmiId=${AMI_SSM_PATH}" \
-    --region "${AWS_REGION}" 2>&1) || {
-    if echo "$output" | grep -qi "No changes to deploy"; then
-        echo "스택에 변경 사항이 없습니다."
+# CDK Bootstrap
+bootstrap_region() {
+    local BR="$1"
+    local STATUS
+    STATUS=$(aws cloudformation describe-stacks --stack-name CDKToolkit --region "$BR" \
+        --query "Stacks[0].StackStatus" --output text 2>/dev/null || echo "NONE")
+    if [ "$STATUS" != "NONE" ] && [ "$STATUS" != "DELETE_COMPLETE" ]; then
+        echo "  $BR: 이미 부트스트랩됨 / bootstrapped"
     else
-        echo "ERROR: 배포 실패"
-        echo "$output"
-        rm -f "${TEMPLATE_WORK}"
-        exit 1
+        echo "  $BR: 부트스트랩 중... / bootstrapping..."
+        npx cdk bootstrap "aws://$ACCOUNT_ID/$BR" --region "$BR"
     fi
 }
 
-# 임시 파일 정리
-rm -f "${TEMPLATE_WORK}"
+bootstrap_region "$REGION"
 
-# =============================================================================
-# 10. 결과 출력
-# =============================================================================
-echo ""
-echo "============================================="
-echo "  배포 완료"
-echo "============================================="
-
-aws cloudformation describe-stacks \
-    --stack-name "${STACK_NAME}" \
-    --query 'Stacks[0].Outputs[?OutputKey==`CloudFrontURL` || OutputKey==`VSCodeServerInstanceId` || OutputKey==`VSCodeServerPrivateIP`]' \
-    --output table \
-    --region "${AWS_REGION}" 2>/dev/null || true
-
-CF_URL=$(aws cloudformation describe-stacks \
-    --stack-name "${STACK_NAME}" \
-    --query 'Stacks[0].Outputs[?OutputKey==`CloudFrontURL`].OutputValue' \
-    --output text --region "${AWS_REGION}" 2>/dev/null || echo "")
-
-INSTANCE_ID=$(aws cloudformation describe-stacks \
-    --stack-name "${STACK_NAME}" \
-    --query 'Stacks[0].Outputs[?OutputKey==`VSCodeServerInstanceId`].OutputValue' \
-    --output text --region "${AWS_REGION}" 2>/dev/null || echo "")
+# CDK Context
+CDK_CONTEXT=""
+if [ -n "$EXISTING_VPC_ID" ]; then
+    CDK_CONTEXT="-c useExistingVpc=true -c vpcId=$EXISTING_VPC_ID -c vpcCidr=${VPC_CIDR:-10.0.0.0/8}"
+fi
+if [ "$SKIP_VPC_ENDPOINTS" = "true" ]; then
+    CDK_CONTEXT="$CDK_CONTEXT -c skipVpcEndpoints=true"
+fi
 
 echo ""
-echo "  접속 URL : ${CF_URL}"
-echo "  SSM 접속 : aws ssm start-session --target ${INSTANCE_ID}"
+echo -e "  ${CYAN}CDK 배포 중... (5-10분) / Deploying via CDK (5-10 min)...${NC}"
 echo ""
-echo "  ※ CloudFront 배포 완료까지 3~5분 소요될 수 있습니다."
-echo "  ※ EC2 UserData 설치 완료까지 추가 5~10분 소요됩니다."
+
+npx cdk deploy VscodeServerStack \
+    --parameters InstanceType="$INSTANCE_TYPE" \
+    --parameters VSCodePassword="$VSCODE_PASSWORD" \
+    --parameters CloudFrontPrefixListId="$CF_PREFIX_LIST" \
+    --parameters ExistingVpcId="${EXISTING_VPC_ID}" \
+    $CDK_CONTEXT \
+    --require-approval never \
+    --region "$REGION" 2>&1
+
+###############################################################################
+#  결과 출력 / Output Results                                                  #
+###############################################################################
+echo ""
+echo -e "${CYAN}결과 파싱 / Parsing outputs...${NC}"
+
+OUTPUTS=$(aws cloudformation describe-stacks \
+    --stack-name VscodeServerStack --region "$REGION" \
+    --query "Stacks[0].Outputs" --output json 2>/dev/null || echo "[]")
+
+parse_output() {
+    echo "$OUTPUTS" | python3 -c "import json,sys;o={i['OutputKey']:i['OutputValue'] for i in json.load(sys.stdin)};print(o.get('$1','N/A'))" 2>/dev/null || echo "N/A"
+}
+
+CF_URL=$(parse_output "CloudFrontURL")
+INSTANCE_ID=$(parse_output "InstanceId")
+VPC_ID=$(parse_output "VPCId")
+
+echo ""
+echo -e "${GREEN}=================================================================${NC}"
+echo -e "${GREEN}   배포 완료 / Deployment Complete${NC}"
+echo -e "${GREEN}=================================================================${NC}"
+echo ""
+echo "  스택 / Stack:       VscodeServerStack"
+echo "  리전 / Region:      $REGION"
+echo "  계정 / Account:     $ACCOUNT_ID"
+echo "  인스턴스 / Instance: $INSTANCE_ID ($INSTANCE_TYPE)"
+echo "  VPC:                $VPC_ID"
+echo ""
+echo -e "  ${BOLD}┌─────────────────────────────────────────────────┐${NC}"
+echo -e "  ${BOLD}│  접속 방법 / How to Access                       │${NC}"
+echo -e "  ${BOLD}├─────────────────────────────────────────────────┤${NC}"
+echo -e "  │                                                 │"
+echo -e "  │  ${GREEN}방법 1: VSCode Server (브라우저)${NC}               │"
+echo -e "  │  URL: ${BOLD}${CF_URL}${NC}"
+echo -e "  │  비밀번호 / Password: (설정한 비밀번호)          │"
+echo -e "  │                                                 │"
+echo -e "  │  ${GREEN}방법 2: SSM Session Manager (터미널)${NC}          │"
+echo -e "  │  aws ssm start-session \\                       │"
+echo -e "  │    --target $INSTANCE_ID \\      │"
+echo -e "  │    --region $REGION                     │"
+echo -e "  │                                                 │"
+echo -e "  ${BOLD}└─────────────────────────────────────────────────┘${NC}"
+echo ""
+echo -e "  ${YELLOW}CloudFront 배포 완료까지 3-5분 소요될 수 있습니다.${NC}"
+echo -e "  ${YELLOW}EC2 UserData 설치 완료까지 추가 5-10분 소요됩니다.${NC}"
 echo ""

@@ -35,7 +35,7 @@ User -> CloudFront (HTTPS) -> ALB (HTTP:80) -> EC2 VSCode Server (TCP:8888)
 - Node.js 20, Python3
 - Kiro CLI
 - Claude Code
-- code-server v4.106.3
+- code-server v4.110.0
 - Development Tools (Util)
 
 ## Prerequisites
@@ -130,64 +130,35 @@ aws cloudformation delete-stack --stack-name mgmt-vpc --region ap-northeast-2
 ## Claude Code + Amazon Bedrock 설정 스크립트
 
 VSCode Server 배포 후 Claude Code를 Amazon Bedrock과 연동하기 위한 설정 스크립트입니다.
+자세한 내용은 [scripts/CLAUDE_SETUP.md](scripts/CLAUDE_SETUP.md)를 참조하세요.
 
-### 1. setup-vscode-extension-settings.sh
-
-**용도**: VS Code Extension (code-server 웹 UI) 환경에서 Claude Code 설정
-
-code-server의 `settings.json`에 Claude Code Extension 설정을 추가합니다.
-
-**설정 항목**:
-- CLAUDE_CODE_USE_BEDROCK: Bedrock 사용 활성화
-- AWS_BEARER_TOKEN_BEDROCK: Bedrock 인증 토큰
-- ANTHROPIC_MODEL: Claude Opus 4.5
-- ANTHROPIC_SMALL_FAST_MODEL: Claude Haiku 4.5
-
-**사용 방법**:
+### 빠른 시작
 
 ```bash
-# VSCode Server (code-server) 터미널에서 실행
-git clone https://github.com/whchoi98/ec2_vscode.git
-chmod +x ~/ec2_vscode/setup-vscode-extension-settings.sh
-~/ec2_vscode/setup-vscode-extension-settings.sh
-
-# AWS_BEARER_TOKEN_BEDROCK 값 입력 프롬프트가 표시됩니다
-# 설정 완료 후 code-server 재시작
-sudo systemctl restart code-server
-```
-
-### 2. setup-claude-bedrock-bashrc.sh
-
-**용도**: CLI (터미널) 환경에서 Claude Code 사용을 위한 bashrc 환경 변수 설정
-
-`~/.bashrc`에 Claude Code + Bedrock 환경 변수를 추가합니다.
-
-**설정 항목**:
-- ANTHROPIC_API_KEY: Anthropic API 키
-- AWS_BEARER_TOKEN_BEDROCK: Bedrock 인증 토큰
-- CLAUDE_CODE_USE_BEDROCK: Bedrock 사용 활성화
-- ANTHROPIC_MODEL: Claude Opus 4.5
-- ANTHROPIC_SMALL_FAST_MODEL: Claude Haiku 4.5
-
-**사용 방법**:
-
-```bash
-# SSM 또는 터미널에서 실행
-git clone https://github.com/whchoi98/ec2_vscode.git
-chmod +x ~/ec2_vscode/setup-claude-bedrock-bashrc.sh
-~/ec2_vscode/setup-claude-bedrock-bashrc.sh
-
-# ANTHROPIC_API_KEY, AWS_BEARER_TOKEN_BEDROCK 값 입력 프롬프트가 표시됩니다
-# 설정 적용
+# 1. Bedrock 환경변수 설정
+bash ~/ec2_vscode/scripts/01-setup-bedrock-env.sh
 source ~/.bashrc
 
-# Claude Code CLI 실행
-claude
+# 2. VS Code 확장 설정 (code-server 사용 시)
+bash ~/ec2_vscode/scripts/02-setup-vscode-settings.sh
+
+# 3. 플러그인 + MCP 서버 설치
+bash ~/ec2_vscode/scripts/03-setup-plugins-and-mcp.sh
+
+# 4. Claude Code 업데이트 (선택)
+bash ~/ec2_vscode/scripts/04-update-claude.sh
+
+# 5. 커스텀 플러그인 설치 (선택)
+bash ~/ec2_vscode/scripts/05-setup-custom-plugin.sh
 ```
 
-### 스크립트 선택 가이드
+### 스크립트 목록
 
-| 환경 | 스크립트 | 설명 |
-|-----|---------|------|
-| VS Code 웹 UI (브라우저) | `setup-vscode-extension-settings.sh` | Claude Code Extension 사용 |
-| 터미널 / CLI | `setup-claude-bedrock-bashrc.sh` | Claude Code CLI 사용 |
+| 순서 | 스크립트 | 설명 |
+|------|---------|------|
+| 01 | `01-setup-bedrock-env.sh` | Bedrock 환경변수 (~/.bashrc) 설정 |
+| 02 | `02-setup-vscode-settings.sh` | VS Code Extension (code-server) 설정 |
+| 03 | `03-setup-plugins-and-mcp.sh` | 플러그인 26개 + AWS MCP 서버 3개 설치 |
+| 04 | `04-update-claude.sh` | Claude Code CLI 업데이트 |
+| 05 | `05-setup-custom-plugin.sh` | 커스텀 플러그인 (project-init) 설치 |
+| - | `mcp-toggle.sh` | MCP 서버 ON/OFF 인터랙티브 TUI |

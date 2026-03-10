@@ -1,0 +1,221 @@
+# Claude Code Setup Scripts
+
+Amazon Bedrock 기반 Claude Code 환경을 구성하는 셸 스크립트 모음입니다.
+
+## 사전 요구사항
+
+| 항목 | 설치 확인 | 설치 방법 |
+|------|----------|-----------|
+| Claude Code CLI | `claude --version` | `npm install -g @anthropic-ai/claude-code` |
+| Node.js / npm | `node --version` | `sudo dnf install -y nodejs` |
+| uv / uvx | `uvx --version` | `curl -LsSf https://astral.sh/uv/install.sh \| sh` |
+| AWS CLI | `aws --version` | [AWS CLI 설치 가이드](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html) |
+| jq | `jq --version` | `sudo dnf install -y jq` (02번 스크립트에서 자동 설치) |
+
+## 스크립트 실행 순서
+
+```
+01-setup-bedrock-env.sh        Bedrock 환경변수 설정
+        |
+        v
+   source ~/.bashrc             환경변수 적용
+        |
+        v
+02-setup-vscode-settings.sh    VS Code 확장 설정 (code-server 사용 시)
+        |
+        v
+03-setup-plugins-and-mcp.sh    플러그인 + MCP 서버 설치
+        |
+        v
+04-update-claude.sh            Claude Code 업데이트 (수시)
+        |
+        v
+05-setup-custom-plugin.sh      커스텀 플러그인 설치 (선택)
+        |
+        v
+   claude                       Claude Code 세션에서 /init-project 실행
+```
+
+---
+
+## 01-setup-bedrock-env.sh
+
+Amazon Bedrock 연동에 필요한 환경변수를 `~/.bashrc`에 설정합니다.
+
+**실행:**
+```bash
+bash 01-setup-bedrock-env.sh
+```
+
+**대화형 입력 항목:**
+- `ANTHROPIC_API_KEY` - Anthropic API 키
+- `AWS_BEARER_TOKEN_BEDROCK` - AWS Bearer Token
+- 모델 선택 (Opus 4.6 1M / Sonnet 4.6 1M)
+- Max Output Tokens 선택 (4096 / 16384 / 32768)
+
+**설정되는 환경변수:**
+```bash
+ANTHROPIC_API_KEY
+AWS_BEARER_TOKEN_BEDROCK
+CLAUDE_CODE_USE_BEDROCK=1
+ANTHROPIC_MODEL                    # 선택한 모델
+ANTHROPIC_DEFAULT_OPUS_MODEL       # global.anthropic.claude-opus-4-6-v1[1m]
+ANTHROPIC_DEFAULT_SONNET_MODEL     # global.anthropic.claude-sonnet-4-6[1m]
+ANTHROPIC_DEFAULT_HAIKU_MODEL      # global.anthropic.claude-haiku-4-5-20251001-v1:0
+ANTHROPIC_SMALL_FAST_MODEL         # us.anthropic.claude-haiku-4-5-20251001-v1:0
+CLAUDE_CODE_MAX_OUTPUT_TOKENS      # 선택한 토큰 수 (기본값: 16384)
+```
+
+**실행 후 반드시:**
+```bash
+source ~/.bashrc
+```
+
+---
+
+## 02-setup-vscode-settings.sh
+
+EC2 code-server 환경에서 Claude Code VS Code 확장의 `settings.json`을 설정합니다.
+
+**실행:**
+```bash
+bash 02-setup-vscode-settings.sh
+```
+
+**대화형 입력 항목:**
+- `AWS_BEARER_TOKEN_BEDROCK` - AWS Bearer Token
+
+**동작:**
+- 기존 `settings.json` 백업 (타임스탬프 포함)
+- Claude Code 설정 JSON 생성
+- 기존 파일이 있으면 `jq`로 병합, 없으면 새로 생성
+
+**주요 설정값:**
+
+| 설정 | 값 |
+|------|-----|
+| `ANTHROPIC_MODEL` | `global.anthropic.claude-opus-4-6-v1[1m]` |
+| `ANTHROPIC_SMALL_FAST_MODEL` | `us.anthropic.claude-haiku-4-5-20251001-v1:0` |
+| `CLAUDE_CODE_SUBAGENT_MODEL` | `global.anthropic.claude-opus-4-6-v1[1m]` |
+| `MAX_THINKING_TOKENS` | `10240` |
+| `CLAUDE_CODE_MAX_OUTPUT_TOKENS` | `16384` |
+
+**설정 경로:**
+```
+~/.local/share/code-server/User/settings.json
+```
+
+**설정 후:**
+```bash
+sudo systemctl restart code-server
+```
+
+> code-server를 사용하지 않는 환경에서는 이 스크립트를 건너뛰어도 됩니다.
+
+---
+
+## 03-setup-plugins-and-mcp.sh
+
+Claude Code 플러그인과 AWS MCP 서버를 일괄 설치합니다.
+
+**실행:**
+```bash
+bash 03-setup-plugins-and-mcp.sh
+```
+
+**설치 내용:**
+
+플러그인 (claude-plugins-official, 27개):
+
+| 카테고리 | 플러그인 |
+|----------|---------|
+| 개발 워크플로우 | commit-commands, code-review, code-simplifier, feature-dev, pr-review-toolkit, claude-md-management, plugin-dev, agent-sdk-dev, claude-code-setup |
+| 프론트엔드 | frontend-design |
+| LSP | pyright-lsp, typescript-lsp, gopls-lsp, jdtls-lsp |
+| 외부 서비스 | context7, github, playwright, slack, stripe, linear, supabase, serena |
+| 유틸리티 | ralph-loop, superpowers, qodo-skills, explanatory-output-style, security-guidance |
+
+플러그인 (agent-plugins-for-aws, 1개):
+
+| 플러그인 | 포함 MCP |
+|---------|---------|
+| deploy-on-aws | awsiac, awsknowledge, awspricing |
+
+MCP 서버 (3개):
+
+| 서버 | 패키지 | 기능 |
+|------|--------|------|
+| awslabs-terraform-mcp-server | `awslabs.terraform-mcp-server` | Terraform/Terragrunt AWS 인프라 개발 |
+| awslabs-core-mcp-server | `awslabs.core-mcp-server` | AWS API, Cost Explorer, 다이어그램, 가격 분석 |
+| bedrock-agentcore-mcp-server | `awslabs.amazon-bedrock-agentcore-mcp-server` | Bedrock AgentCore Gateway, Memory, Runtime |
+
+---
+
+## 04-update-claude.sh
+
+Claude Code CLI를 최신 버전으로 업데이트합니다.
+
+**실행:**
+```bash
+bash 04-update-claude.sh
+```
+
+**동작:**
+1. 현재 버전 출력
+2. `npm update -g @anthropic-ai/claude-code` 실행
+3. 업데이트 후 버전 출력
+
+---
+
+## 05-setup-custom-plugin.sh
+
+커스텀 플러그인(`project-init`)을 로컬 마켓플레이스에 등록하고 설치합니다.
+
+> `../claude_code_plugin/` 디렉토리에 플러그인 소스가 있어야 합니다.
+
+**실행:**
+```bash
+bash 05-setup-custom-plugin.sh
+```
+
+**동작:**
+1. `../claude_code_plugin/` 소스 존재 확인
+2. `~/custom-claude-plugins/` 에 로컬 마켓플레이스 생성 (이미 있으면 소스만 업데이트)
+3. `claude plugin marketplace add`로 마켓플레이스 등록
+4. `project-init@custom-claude-plugins` 설치
+
+**설치되는 플러그인:**
+
+| 플러그인 | 명령어 | 기능 |
+|---------|--------|------|
+| project-init | `/init-project` | 프로젝트 구조 초기화 (CLAUDE.md, docs, hooks, skills) |
+|                     | `/sync-docs` | 전체 문서를 코드 상태와 동기화 |
+
+> 이전의 `04-init-project.sh` (셸 스크립트로 빈 뼈대 생성)는 이 플러그인으로 대체되었습니다.
+> 플러그인은 Claude가 대화를 통해 프로젝트 컨텍스트를 파악하고 내용까지 채워주는 방식으로 동작합니다.
+
+---
+
+## 빠른 시작 (전체 흐름)
+
+```bash
+# 1. Bedrock 환경변수 설정
+bash 01-setup-bedrock-env.sh
+source ~/.bashrc
+
+# 2. VS Code 확장 설정 (code-server 사용 시)
+bash 02-setup-vscode-settings.sh
+
+# 3. 플러그인 + MCP 서버 설치
+bash 03-setup-plugins-and-mcp.sh
+
+# 4. Claude Code 업데이트 (선택)
+bash 04-update-claude.sh
+
+# 5. 커스텀 플러그인 설치
+bash 05-setup-custom-plugin.sh
+
+# 6. Claude Code 세션에서 프로젝트 초기화
+claude
+# 세션 내에서: /init-project ./my-project
+```

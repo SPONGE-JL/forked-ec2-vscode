@@ -67,7 +67,7 @@ cat > "$TEMP_FILE" << EOF
     },
     {
         "name": "ANTHROPIC_MODEL",
-        "value": "global.anthropic.claude-opus-4-5-20251101-v1:0"
+        "value": "global.anthropic.claude-opus-4-6-v1[1m]"
     },
     {
       "name": "ANTHROPIC_SMALL_FAST_MODEL",
@@ -75,20 +75,20 @@ cat > "$TEMP_FILE" << EOF
     },
     {
       "name" : "CLAUDE_CODE_SUBAGENT_MODEL",
-      "value": "global.anthropic.claude-opus-4-5-20251101-v1:0"
+      "value": "global.anthropic.claude-opus-4-6-v1[1m]"
     },
     {
       "name" : "MAX_THINKING_TOKENS",
-      "value" : "1024"
+      "value" : "10240"
     },
     {
       "name" : "CLAUDE_CODE_MAX_OUTPUT_TOKENS",
-      "value" : "4096"
+      "value" : "16384"
     }
     ],
     "claudeCode.disableLoginPrompt": true,
     "claudeCode.preferredLocation": "panel",
-    "claudeCode.selectedModel": "global.anthropic.claude-opus-4-5-20251101-v1:0"
+    "claudeCode.selectedModel": "global.anthropic.claude-opus-4-6-v1[1m]"
 }
 EOF
 
