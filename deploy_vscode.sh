@@ -382,11 +382,11 @@ bootstrap_region() {
     local STATUS
     STATUS=$(aws cloudformation describe-stacks --stack-name CDKToolkit --region "$BR" \
         --query "Stacks[0].StackStatus" --output text 2>/dev/null || echo "NONE")
-    if [ "$STATUS" != "NONE" ] && [ "$STATUS" != "DELETE_COMPLETE" ]; then
-        echo "  $BR: 이미 부트스트랩됨 / bootstrapped"
+    if [ "$STATUS" != "NONE" ] && [ "$STATUS" != "DELETE_COMPLETE" ] && [ "$STATUS" != "ROLLBACK_COMPLETE" ]; then
+        echo "  $BR: 이미 부트스트랩됨 / bootstrapped ($STATUS)"
     else
         echo "  $BR: 부트스트랩 중... / bootstrapping..."
-        npx cdk bootstrap "aws://$ACCOUNT_ID/$BR" --region "$BR"
+        npx cdk bootstrap "aws://$ACCOUNT_ID/$BR" --region "$BR" --force
     fi
 }
 
