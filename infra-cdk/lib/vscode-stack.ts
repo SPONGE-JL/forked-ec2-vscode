@@ -43,6 +43,12 @@ export class VscodeStack extends cdk.Stack {
       description: 'CloudFront origin-facing managed prefix list ID',
     });
 
+    const vpcName = new cdk.CfnParameter(this, 'VpcName', {
+      type: 'String',
+      default: 'mgmt-vpc',
+      description: 'Name tag for the VPC',
+    });
+
     const existingVpcId = new cdk.CfnParameter(this, 'ExistingVpcId', {
       type: 'String',
       default: '',
@@ -73,7 +79,7 @@ export class VscodeStack extends cdk.Stack {
           },
         ],
       });
-      cdk.Tags.of(this.vpc).add('Name', `${this.stackName}-VPC`);
+      cdk.Tags.of(this.vpc).add('Name', vpcName.valueAsString);
     }
 
     // -------------------------------------------------------

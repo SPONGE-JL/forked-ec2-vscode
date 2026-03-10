@@ -169,6 +169,13 @@ USE_EXISTING_VPC="false"
 EXISTING_VPC_ID=""
 SKIP_VPC_ENDPOINTS="false"
 VPC_CIDR=""
+VPC_NAME=""
+
+if [ "$VPC_CHOICE" = "1" ]; then
+    echo ""
+    read -p "  VPC 이름 / VPC Name [mgmt-vpc]: " VPC_NAME
+    VPC_NAME="${VPC_NAME:-mgmt-vpc}"
+fi
 
 if [ "$VPC_CHOICE" = "2" ]; then
     echo ""
@@ -251,7 +258,7 @@ if [ "$USE_EXISTING_VPC" = "true" ]; then
         echo -e "  ${YELLOW}일부 Endpoint 존재. 충돌 방지를 위해 CDK에서 건너뜁니다.${NC}"
     fi
 else
-    echo -e "  ${GREEN}새 VPC 생성 / Creating new VPC (10.254.0.0/16)${NC}"
+    echo -e "  ${GREEN}새 VPC 생성 / Creating new VPC: ${VPC_NAME} (10.254.0.0/16)${NC}"
 fi
 
 ###############################################################################
@@ -356,7 +363,7 @@ echo "  │  CF Prefix List:    $CF_PREFIX_LIST"
 if [ -n "$EXISTING_VPC_ID" ]; then
     echo "  │  VPC:               $EXISTING_VPC_ID (기존 / existing)"
 else
-    echo "  │  VPC:               새로 생성 / new (10.254.0.0/16)"
+    echo "  │  VPC:               새로 생성 / new ($VPC_NAME, 10.254.0.0/16)"
 fi
 echo "  │  비밀번호 / PW:     $(printf '*%.0s' $(seq 1 ${#VSCODE_PASSWORD}))"
 echo -e "  ${BOLD}└─────────────────────────────────────────────────┘${NC}"
@@ -479,6 +486,7 @@ npx cdk deploy VscodeServerStack \
     --parameters VSCodePassword="$VSCODE_PASSWORD" \
     --parameters CloudFrontPrefixListId="$CF_PREFIX_LIST" \
     --parameters ExistingVpcId="${EXISTING_VPC_ID}" \
+    --parameters VpcName="${VPC_NAME:-mgmt-vpc}" \
     $CDK_CONTEXT \
     --require-approval never \
     --region "$REGION" 2>&1
