@@ -381,26 +381,44 @@ cleanup_orphaned_bootstrap() {
     local BR="$1"
     local BUCKET_NAME="cdk-hnb659fds-assets-${ACCOUNT_ID}-${BR}"
 
+    # ROLLBACK_COMPLETE 상태의 CDKToolkit 스택 삭제
+    local STACK_STATUS
+    STACK_STATUS=$(aws cloudformation describe-stacks --stack-name CDKToolkit --region "$BR" \
+        --query "Stacks[0].StackStatus" --output text 2>/dev/null || echo "NONE")
+    if [ "$STACK_STATUS" = "ROLLBACK_COMPLETE" ] || [ "$STACK_STATUS" = "DELETE_FAILED" ]; then
+        echo -e "  ${YELLOW}비정상 CDKToolkit 스택 삭제 중 ($STACK_STATUS)...${NC}"
+        aws cloudformation delete-stack --stack-name CDKToolkit --region "$BR" 2>/dev/null || true
+        aws cloudformation wait stack-delete-complete --stack-name CDKToolkit --region "$BR" 2>/dev/null || true
+    fi
+
     # 고아 S3 버킷 확인 및 정리
     if aws s3api head-bucket --bucket "$BUCKET_NAME" --region "$BR" 2>/dev/null; then
         echo -e "  ${YELLOW}고아 CDK 버킷 발견: $BUCKET_NAME${NC}"
-        echo -e "  ${YELLOW}버킷 비우는 중... / Emptying orphaned bucket...${NC}"
+        echo -e "  ${YELLOW}버킷 비우는 중...${NC}"
         aws s3 rm "s3://$BUCKET_NAME" --recursive --region "$BR" 2>/dev/null || true
-        # 버전 관리된 객체도 삭제
-        aws s3api list-object-versions --bucket "$BUCKET_NAME" --region "$BR" \
-            --query '{Objects: Versions[].{Key:Key,VersionId:VersionId}}' --output json 2>/dev/null | \
-            python3 -c "
-import json,sys
-data = json.load(sys.stdin)
-if data.get('Objects'):
-    print(json.dumps(data))
-" | while read -r delete_json; do
-            [ -n "$delete_json" ] && aws s3api delete-objects --bucket "$BUCKET_NAME" --region "$BR" --delete "$delete_json" 2>/dev/null || true
-        done
-        echo -e "  ${YELLOW}버킷 삭제 중... / Deleting bucket...${NC}"
-        aws s3api delete-bucket --bucket "$BUCKET_NAME" --region "$BR" 2>/dev/null || true
-        echo -e "  ${GREEN}고아 버킷 정리 완료${NC}"
+        # 버전 관리된 객체 삭제
+        local VERSIONS
+        VERSIONS=$(aws s3api list-object-versions --bucket "$BUCKET_NAME" --region "$BR" \
+            --query '{Objects: Versions[].{Key:Key,VersionId:VersionId}}' --output json 2>/dev/null || echo '{}')
+        if echo "$VERSIONS" | python3 -c "import json,sys;d=json.load(sys.stdin);exit(0 if d.get('Objects') else 1)" 2>/dev/null; then
+            echo "$VERSIONS" | aws s3api delete-objects --bucket "$BUCKET_NAME" --region "$BR" --delete file:///dev/stdin 2>/dev/null || true
+        fi
+        # DeleteMarkers도 정리
+        local MARKERS
+        MARKERS=$(aws s3api list-object-versions --bucket "$BUCKET_NAME" --region "$BR" \
+            --query '{Objects: DeleteMarkers[].{Key:Key,VersionId:VersionId}}' --output json 2>/dev/null || echo '{}')
+        if echo "$MARKERS" | python3 -c "import json,sys;d=json.load(sys.stdin);exit(0 if d.get('Objects') else 1)" 2>/dev/null; then
+            echo "$MARKERS" | aws s3api delete-objects --bucket "$BUCKET_NAME" --region "$BR" --delete file:///dev/stdin 2>/dev/null || true
+        fi
+        echo -e "  ${YELLOW}버킷 삭제 중...${NC}"
+        aws s3api delete-bucket --bucket "$BUCKET_NAME" --region "$BR" 2>/dev/null || {
+            echo -e "  ${RED}버킷 삭제 실패. 수동으로 삭제하세요: aws s3 rb s3://$BUCKET_NAME --force --region $BR${NC}"
+        }
     fi
+
+    # 고아 ECR 리포지토리 정리
+    aws ecr delete-repository --repository-name "cdk-hnb659fds-container-assets-${ACCOUNT_ID}-${BR}" \
+        --region "$BR" --force 2>/dev/null || true
 
     # 고아 SSM 파라미터 정리
     aws ssm delete-parameter --name "/cdk-bootstrap/hnb659fds/version" --region "$BR" 2>/dev/null || true
@@ -411,14 +429,34 @@ bootstrap_region() {
     local STATUS
     STATUS=$(aws cloudformation describe-stacks --stack-name CDKToolkit --region "$BR" \
         --query "Stacks[0].StackStatus" --output text 2>/dev/null || echo "NONE")
-    if [ "$STATUS" != "NONE" ] && [ "$STATUS" != "DELETE_COMPLETE" ] && [ "$STATUS" != "ROLLBACK_COMPLETE" ]; then
+    if [ "$STATUS" = "CREATE_COMPLETE" ] || [ "$STATUS" = "UPDATE_COMPLETE" ]; then
         echo "  $BR: 이미 부트스트랩됨 / bootstrapped ($STATUS)"
-    else
-        # 이전 bootstrap 잔여 리소스 정리
-        cleanup_orphaned_bootstrap "$BR"
-        echo "  $BR: 부트스트랩 중... / bootstrapping..."
-        npx cdk bootstrap "aws://$ACCOUNT_ID/$BR" --region "$BR" --force
+        return 0
     fi
+
+    # 이전 bootstrap 잔여 리소스 정리
+    cleanup_orphaned_bootstrap "$BR"
+
+    echo "  $BR: 부트스트랩 중... / bootstrapping..."
+    if ! npx cdk bootstrap "aws://$ACCOUNT_ID/$BR" --region "$BR" --force; then
+        echo -e "${RED}오류: CDK 부트스트랩 실패 / ERROR: CDK bootstrap failed for $BR${NC}"
+        echo ""
+        echo "  수동 해결 방법 / Manual fix:"
+        echo "    1. aws s3 rb s3://cdk-hnb659fds-assets-${ACCOUNT_ID}-${BR} --force --region $BR"
+        echo "    2. aws cloudformation delete-stack --stack-name CDKToolkit --region $BR"
+        echo "    3. 스크립트 재실행 / Re-run this script"
+        exit 1
+    fi
+
+    # bootstrap 성공 확인
+    local VERIFY
+    VERIFY=$(aws ssm get-parameter --name "/cdk-bootstrap/hnb659fds/version" --region "$BR" \
+        --query "Parameter.Value" --output text 2>/dev/null || echo "")
+    if [ -z "$VERIFY" ]; then
+        echo -e "${RED}오류: 부트스트랩 완료되었으나 SSM 파라미터 확인 실패${NC}"
+        exit 1
+    fi
+    echo -e "  ${GREEN}$BR: 부트스트랩 완료 (version: $VERIFY)${NC}"
 }
 
 bootstrap_region "$REGION"
