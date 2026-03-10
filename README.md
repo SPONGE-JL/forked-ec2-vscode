@@ -175,6 +175,24 @@ aws cloudformation describe-stacks \
 | PublicALBEndpoint | ALB DNS (직접 접근 불가 - 403) |
 | CustomHeaderSecret | CloudFront -> ALB 검증용 시크릿 |
 
+## EC2 IAM Role
+
+CDK 배포 시 EC2 인스턴스에 다음 IAM Role이 생성됩니다.
+
+| 항목 | 값 |
+|------|-----|
+| Role 이름 | `VscodeServerStack-VSCode-Role` |
+| 사용 주체 | EC2 인스턴스 (VSCode Server) |
+
+**연결된 정책:**
+
+| 정책 | 용도 |
+|------|------|
+| `AmazonSSMManagedInstanceCore` | SSM Session Manager 접속 |
+| `CloudWatchAgentServerPolicy` | CloudWatch 모니터링 및 로그 수집 |
+
+> Bedrock, S3, ECR 등 추가 권한이 필요한 경우 AWS Console에서 해당 Role에 정책을 추가하세요.
+
 ## 스택 삭제
 
 ### CDK 배포 삭제
