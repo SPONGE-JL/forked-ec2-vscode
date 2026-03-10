@@ -377,6 +377,35 @@ npx tsc
 echo "  빌드 완료 / Build complete."
 
 # CDK Bootstrap
+cleanup_orphaned_bootstrap() {
+    local BR="$1"
+    local BUCKET_NAME="cdk-hnb659fds-assets-${ACCOUNT_ID}-${BR}"
+
+    # 고아 S3 버킷 확인 및 정리
+    if aws s3api head-bucket --bucket "$BUCKET_NAME" --region "$BR" 2>/dev/null; then
+        echo -e "  ${YELLOW}고아 CDK 버킷 발견: $BUCKET_NAME${NC}"
+        echo -e "  ${YELLOW}버킷 비우는 중... / Emptying orphaned bucket...${NC}"
+        aws s3 rm "s3://$BUCKET_NAME" --recursive --region "$BR" 2>/dev/null || true
+        # 버전 관리된 객체도 삭제
+        aws s3api list-object-versions --bucket "$BUCKET_NAME" --region "$BR" \
+            --query '{Objects: Versions[].{Key:Key,VersionId:VersionId}}' --output json 2>/dev/null | \
+            python3 -c "
+import json,sys
+data = json.load(sys.stdin)
+if data.get('Objects'):
+    print(json.dumps(data))
+" | while read -r delete_json; do
+            [ -n "$delete_json" ] && aws s3api delete-objects --bucket "$BUCKET_NAME" --region "$BR" --delete "$delete_json" 2>/dev/null || true
+        done
+        echo -e "  ${YELLOW}버킷 삭제 중... / Deleting bucket...${NC}"
+        aws s3api delete-bucket --bucket "$BUCKET_NAME" --region "$BR" 2>/dev/null || true
+        echo -e "  ${GREEN}고아 버킷 정리 완료${NC}"
+    fi
+
+    # 고아 SSM 파라미터 정리
+    aws ssm delete-parameter --name "/cdk-bootstrap/hnb659fds/version" --region "$BR" 2>/dev/null || true
+}
+
 bootstrap_region() {
     local BR="$1"
     local STATUS
@@ -385,6 +414,8 @@ bootstrap_region() {
     if [ "$STATUS" != "NONE" ] && [ "$STATUS" != "DELETE_COMPLETE" ] && [ "$STATUS" != "ROLLBACK_COMPLETE" ]; then
         echo "  $BR: 이미 부트스트랩됨 / bootstrapped ($STATUS)"
     else
+        # 이전 bootstrap 잔여 리소스 정리
+        cleanup_orphaned_bootstrap "$BR"
         echo "  $BR: 부트스트랩 중... / bootstrapping..."
         npx cdk bootstrap "aws://$ACCOUNT_ID/$BR" --region "$BR" --force
     fi
