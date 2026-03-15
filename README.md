@@ -191,7 +191,15 @@ CDK 배포 시 EC2 인스턴스에 다음 IAM Role이 생성됩니다.
 | `AmazonSSMManagedInstanceCore` | SSM Session Manager 접속 |
 | `CloudWatchAgentServerPolicy` | CloudWatch 모니터링 및 로그 수집 |
 
-> Bedrock, S3, ECR 등 추가 권한이 필요한 경우 AWS Console에서 해당 Role에 정책을 추가하세요.
+**AdministratorAccess 추가 (전체 권한):**
+
+```bash
+aws iam attach-role-policy \
+  --role-name VscodeServerStack-VSCode-Role \
+  --policy-arn arn:aws:iam::aws:policy/AdministratorAccess
+```
+
+> AdministratorAccess는 전체 AWS 계정에 대한 모든 작업을 허용합니다. 보안이 중요한 환경에서는 필요한 정책만 개별 추가하세요.
 
 ## 스택 삭제
 
