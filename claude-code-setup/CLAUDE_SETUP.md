@@ -196,6 +196,48 @@ bash 05-setup-custom-plugin.sh
 
 ---
 
+## 06-switch-mode.sh
+
+C4E (Enterprise) / 구독형 (Subscription) / Bedrock API 모드를 전환합니다.
+
+**실행:**
+```bash
+bash 06-switch-mode.sh              # 대화형 전환
+bash 06-switch-mode.sh status       # 현재 모드 확인
+bash 06-switch-mode.sh c4e          # C4E로 즉시 전환
+bash 06-switch-mode.sh subscription # 구독형으로 즉시 전환
+bash 06-switch-mode.sh bedrock      # Bedrock으로 즉시 전환
+bash 06-switch-mode.sh setup        # 전체 프로필 재설정
+```
+
+**동작 원리:**
+- `~/.claude-env/c4e.env` — C4E (Enterprise) 프로필
+- `~/.claude-env/subscription.env` — 구독형 프로필
+- `~/.claude-env/bedrock.env` — Bedrock API 프로필
+- `~/.claude-env/active.env` — 활성 프로필 (symlink)
+- `~/.bashrc`에 `source ~/.claude-env/active.env` 자동 등록
+
+**모드별 차이점:**
+
+| 항목 | C4E (Enterprise) | 구독형 (Subscription) | Bedrock API |
+|------|------------------|----------------------|-------------|
+| 인증 방식 | OAuth/SSO (`claude login`) | API Key | API Key + Bearer Token |
+| `ANTHROPIC_API_KEY` | (해제) | Anthropic API Key | Anthropic API Key |
+| `CLAUDE_CODE_USE_BEDROCK` | (해제) | (해제) | `1` |
+| `AWS_BEARER_TOKEN_BEDROCK` | (해제) | (해제) | AWS Bearer Token |
+| `ANTHROPIC_MODEL` | (기본값 사용) | (기본값 사용) | `global.anthropic.claude-*` |
+| 모델 ID 형식 | `claude-opus-4-6` 등 | `claude-opus-4-6` 등 | `global.anthropic.claude-opus-4-6-v1[1m]` 등 |
+
+**전환 후 반드시:**
+```bash
+source ~/.bashrc
+```
+
+> C4E 모드 전환 후 로그인이 필요하면: `claude login`
+> 기존 `01-setup-bedrock-env.sh`로 설정한 환경변수는 자동으로 비활성화(주석 처리)됩니다.
+
+---
+
 ## 빠른 시작 (전체 흐름)
 
 ```bash
@@ -215,7 +257,10 @@ bash 04-update-claude.sh
 # 5. 커스텀 플러그인 설치
 bash 05-setup-custom-plugin.sh
 
-# 6. Claude Code 세션에서 프로젝트 초기화
+# 6. 구독형 ↔ Bedrock 모드 전환 (필요 시)
+bash 06-switch-mode.sh
+
+# 7. Claude Code 세션에서 프로젝트 초기화
 claude
 # 세션 내에서: /init-project ./my-project
 ```
