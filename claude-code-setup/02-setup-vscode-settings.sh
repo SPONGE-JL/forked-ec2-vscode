@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Claude Code for VS Code Extension (EC2 code-server) 설정 스크립트
+# Claude Code for VS Code Extension 설정 스크립트 (Linux / macOS 공용)
 
 # 색상 정의
 GREEN='\033[0;32m'
@@ -9,13 +9,24 @@ BLUE='\033[0;34m'
 RED='\033[0;31m'
 NC='\033[0m' # No Color
 
-# code-server 설정 경로
-SETTINGS_DIR="/home/ec2-user/.local/share/code-server/User"
+# OS 감지 및 VS Code 설정 경로 결정
+if [[ "$(uname)" == "Darwin" ]]; then
+    OS_TYPE="macOS"
+    # macOS: VS Code 네이티브 설정 경로
+    SETTINGS_DIR="$HOME/Library/Application Support/Code/User"
+    RESTART_CMD="VS Code를 재시작하세요."
+else
+    OS_TYPE="Linux"
+    # Linux: code-server 설정 경로
+    SETTINGS_DIR="$HOME/.local/share/code-server/User"
+    RESTART_CMD="sudo systemctl restart code-server"
+fi
+
 SETTINGS_FILE="$SETTINGS_DIR/settings.json"
 
 echo "====================================="
 echo " Claude Code for VS Code 설정 스크립트"
-echo " (EC2 code-server 환경)"
+echo " 대상 OS: $OS_TYPE"
 echo "====================================="
 echo ""
 echo -e "${BLUE}설정 경로: ${SETTINGS_FILE}${NC}"
@@ -24,7 +35,11 @@ echo ""
 # jq 설치 확인
 if ! command -v jq &> /dev/null; then
     echo -e "${YELLOW}jq가 설치되어 있지 않습니다. 설치 중...${NC}"
-    sudo yum install -y jq || sudo apt-get install -y jq
+    if [[ "$(uname)" == "Darwin" ]]; then
+        brew install jq
+    else
+        sudo yum install -y jq || sudo apt-get install -y jq
+    fi
 fi
 
 # AWS Bearer Token 입력 받기
@@ -145,8 +160,8 @@ echo ""
 echo "-------------------------------------"
 echo ""
 echo "====================================="
-echo -e "${YELLOW}설정을 적용하려면 다음 명령어를 실행하세요:${NC}"
+echo -e "${YELLOW}설정을 적용하려면:${NC}"
 echo ""
-echo "  sudo systemctl restart code-server"
+echo "  $RESTART_CMD"
 echo ""
 echo "====================================="

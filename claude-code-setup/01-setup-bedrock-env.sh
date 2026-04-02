@@ -1,10 +1,24 @@
 #!/bin/bash
 
-# Claude Code + Amazon Bedrock bashrc 설정 스크립트
+# Claude Code + Amazon Bedrock 셸 설정 스크립트 (Linux / macOS 공용)
 
-BASHRC_FILE="$HOME/.bashrc"
+# OS 감지 및 셸 RC 파일 결정
+if [[ "$(uname)" == "Darwin" ]]; then
+    # macOS: 기본 셸이 zsh (Catalina 이후)
+    if [[ "$SHELL" == */zsh ]]; then
+        SHELL_RC="$HOME/.zshrc"
+    else
+        SHELL_RC="$HOME/.bash_profile"
+    fi
+    OS_TYPE="macOS"
+else
+    SHELL_RC="$HOME/.bashrc"
+    OS_TYPE="Linux"
+fi
 
-echo "=== Claude Code + Amazon Bedrock bashrc 설정 ==="
+echo "=== Claude Code + Amazon Bedrock 셸 설정 ==="
+echo "  대상 OS: $OS_TYPE"
+echo "  설정 파일: $SHELL_RC"
 echo
 
 # ANTHROPIC_API_KEY 값 입력받기
@@ -67,12 +81,16 @@ case "$TOKEN_CHOICE" in
 esac
 
 # 기존 설정 확인
-if grep -q "# Claude Code + Amazon Bedrock 설정" "$BASHRC_FILE" 2>/dev/null; then
+if grep -q "# Claude Code + Amazon Bedrock 설정" "$SHELL_RC" 2>/dev/null; then
     echo "기존 Claude Code + Bedrock 설정이 발견되었습니다."
     read -p "기존 설정을 덮어쓰시겠습니까? (y/n): " OVERWRITE
     if [ "$OVERWRITE" = "y" ] || [ "$OVERWRITE" = "Y" ]; then
-        # 기존 설정 제거
-        sed -i '/# Claude Code + Amazon Bedrock 설정/,/^$/d' "$BASHRC_FILE"
+        # 기존 설정 제거 (macOS BSD sed와 GNU sed 호환)
+        if [[ "$(uname)" == "Darwin" ]]; then
+            sed -i '' '/# Claude Code + Amazon Bedrock 설정/,/^$/d' "$SHELL_RC"
+        else
+            sed -i '/# Claude Code + Amazon Bedrock 설정/,/^$/d' "$SHELL_RC"
+        fi
         echo "기존 설정을 제거했습니다."
     else
         echo "설정을 취소합니다."
@@ -81,7 +99,7 @@ if grep -q "# Claude Code + Amazon Bedrock 설정" "$BASHRC_FILE" 2>/dev/null; t
 fi
 
 # bashrc에 설정 추가
-cat >> "$BASHRC_FILE" << EOF
+cat >> "$SHELL_RC" << EOF
 
 # Claude Code + Amazon Bedrock 설정
 export ANTHROPIC_API_KEY="${ANTHROPIC_KEY}"
@@ -99,4 +117,4 @@ EOF
 echo
 echo "bashrc에 설정이 추가되었습니다."
 echo "설정을 적용하려면 다음 명령어를 실행하세요:"
-echo "  source ~/.bashrc"
+echo "  source $SHELL_RC"

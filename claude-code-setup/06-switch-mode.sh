@@ -31,7 +31,19 @@ C4E_ENV="$ENV_DIR/c4e.env"
 SUB_ENV="$ENV_DIR/subscription.env"
 BRK_ENV="$ENV_DIR/bedrock.env"
 ACTIVE_ENV="$ENV_DIR/active.env"
-BASHRC="$HOME/.bashrc"
+
+# OS 감지 및 셸 RC 파일 결정
+if [[ "$(uname)" == "Darwin" ]]; then
+    if [[ "$SHELL" == */zsh ]]; then
+        SHELL_RC="$HOME/.zshrc"
+    else
+        SHELL_RC="$HOME/.bash_profile"
+    fi
+else
+    SHELL_RC="$HOME/.bashrc"
+fi
+
+BASHRC="$SHELL_RC"
 BASHRC_MARKER="# Claude Code Mode (managed by 06-switch-mode.sh)"
 
 info()  { echo -e "${CYAN}[INFO]${NC} $*"; }
@@ -331,9 +343,15 @@ ensure_bashrc_hook() {
         # 기존 01-setup-bedrock-env.sh 블록이 있으면 주석 처리
         if grep -q "# Claude Code + Amazon Bedrock 설정" "$BASHRC" 2>/dev/null; then
             warn "기존 Bedrock 설정 블록을 비활성화합니다 (주석 처리)."
-            sed -i '/# Claude Code + Amazon Bedrock 설정/,/^$/{
-                /^$/!{ /^#/!s/^/# [old] / }
-            }' "$BASHRC"
+            if [[ "$(uname)" == "Darwin" ]]; then
+                sed -i '' '/# Claude Code + Amazon Bedrock 설정/,/^$/{
+                    /^$/!{ /^#/!s/^/# [old] / ; }
+                }' "$BASHRC"
+            else
+                sed -i '/# Claude Code + Amazon Bedrock 설정/,/^$/{
+                    /^$/!{ /^#/!s/^/# [old] / }
+                }' "$BASHRC"
+            fi
         fi
 
         cat >> "$BASHRC" << 'HOOK'
@@ -394,7 +412,7 @@ switch_to() {
     echo ""
     echo -e "  ${YELLOW}적용하려면 다음 명령을 실행하세요:${NC}"
     echo ""
-    echo -e "    ${BOLD}source ~/.bashrc${NC}"
+    echo -e "    ${BOLD}source $SHELL_RC${NC}"
     echo ""
     if [ "$target_mode" = "c4e" ]; then
         echo -e "  ${CYAN}C4E 로그인 방법:${NC}"

@@ -1,16 +1,27 @@
 # Claude Code Setup Scripts
 
 Amazon Bedrock 기반 Claude Code 환경을 구성하는 셸 스크립트 모음입니다.
+Linux (EC2/Amazon Linux) 및 macOS 환경 모두 지원합니다.
 
 ## 사전 요구사항
 
-| 항목 | 설치 확인 | 설치 방법 |
-|------|----------|-----------|
-| Claude Code CLI | `claude --version` | `npm install -g @anthropic-ai/claude-code` |
-| Node.js / npm | `node --version` | `sudo dnf install -y nodejs` |
-| uv / uvx | `uvx --version` | `curl -LsSf https://astral.sh/uv/install.sh \| sh` |
-| AWS CLI | `aws --version` | [AWS CLI 설치 가이드](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html) |
-| jq | `jq --version` | `sudo dnf install -y jq` (02번 스크립트에서 자동 설치) |
+| 항목 | 설치 확인 | 설치 방법 (Linux) | 설치 방법 (macOS) |
+|------|----------|-------------------|-------------------|
+| Claude Code CLI | `claude --version` | `npm install -g @anthropic-ai/claude-code` | `npm install -g @anthropic-ai/claude-code` |
+| Node.js / npm | `node --version` | `sudo dnf install -y nodejs` | `brew install node` |
+| uv / uvx | `uvx --version` | `curl -LsSf https://astral.sh/uv/install.sh \| sh` | `brew install uv` |
+| AWS CLI | `aws --version` | [AWS CLI 설치 가이드](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html) | `brew install awscli` |
+| jq | `jq --version` | `sudo dnf install -y jq` (02번 스크립트에서 자동 설치) | `brew install jq` (02번 스크립트에서 자동 설치) |
+
+### OS별 셸 설정 파일
+
+| OS | 기본 셸 | 설정 파일 |
+|----|---------|-----------|
+| Linux (EC2) | bash | `~/.bashrc` |
+| macOS (Catalina+) | zsh | `~/.zshrc` |
+| macOS (레거시) | bash | `~/.bash_profile` |
+
+> 모든 스크립트는 자동으로 OS를 감지하여 적절한 셸 설정 파일을 사용합니다.
 
 ## 스크립트 실행 순서
 
@@ -40,7 +51,8 @@ Amazon Bedrock 기반 Claude Code 환경을 구성하는 셸 스크립트 모음
 
 ## 01-setup-bedrock-env.sh
 
-Amazon Bedrock 연동에 필요한 환경변수를 `~/.bashrc`에 설정합니다.
+Amazon Bedrock 연동에 필요한 환경변수를 셸 설정 파일에 추가합니다.
+- Linux: `~/.bashrc` / macOS (zsh): `~/.zshrc` / macOS (bash): `~/.bash_profile`
 
 **실행:**
 ```bash
@@ -68,14 +80,17 @@ CLAUDE_CODE_MAX_OUTPUT_TOKENS      # 선택한 토큰 수 (기본값: 16384)
 
 **실행 후 반드시:**
 ```bash
+# Linux
 source ~/.bashrc
+# macOS (zsh)
+source ~/.zshrc
 ```
 
 ---
 
 ## 02-setup-vscode-settings.sh
 
-EC2 code-server 환경에서 Claude Code VS Code 확장의 `settings.json`을 설정합니다.
+VS Code 확장의 `settings.json`을 설정합니다. (Linux code-server / macOS VS Code 자동 감지)
 
 **실행:**
 ```bash
@@ -102,15 +117,17 @@ bash 02-setup-vscode-settings.sh
 
 **설정 경로:**
 ```
-~/.local/share/code-server/User/settings.json
+Linux (code-server):  ~/.local/share/code-server/User/settings.json
+macOS (VS Code):      ~/Library/Application Support/Code/User/settings.json
 ```
 
 **설정 후:**
 ```bash
+# Linux (code-server)
 sudo systemctl restart code-server
+# macOS
+# VS Code를 재시작하세요.
 ```
-
-> code-server를 사용하지 않는 환경에서는 이 스크립트를 건너뛰어도 됩니다.
 
 ---
 
@@ -230,7 +247,10 @@ bash 06-switch-mode.sh setup        # 전체 프로필 재설정
 
 **전환 후 반드시:**
 ```bash
+# Linux
 source ~/.bashrc
+# macOS (zsh)
+source ~/.zshrc
 ```
 
 > C4E 모드 전환 후 로그인이 필요하면: `claude login`
