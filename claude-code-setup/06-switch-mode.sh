@@ -147,6 +147,23 @@ choose_max_tokens() {
 }
 
 ###############################################################################
+# Anthropic API 모델 선택 (C4E / Subscription 공통)
+###############################################################################
+choose_anthropic_model() {
+    echo "" >&2
+    echo "  기본 모델 선택:" >&2
+    echo "    1) Opus 4.6 1M   (claude-opus-4-6) (기본값)" >&2
+    echo "    2) Sonnet 4.6 1M (claude-sonnet-4-6)" >&2
+    read -p "  선택 [1]: " MODEL_CHOICE
+    MODEL_CHOICE="${MODEL_CHOICE:-1}"
+
+    case "$MODEL_CHOICE" in
+        2) echo "claude-sonnet-4-6" ;;
+        *) echo "claude-opus-4-6" ;;
+    esac
+}
+
+###############################################################################
 # C4E (Enterprise) 프로필 설정
 ###############################################################################
 setup_c4e() {
@@ -157,6 +174,9 @@ setup_c4e() {
     echo -e "${DIM}  별도의 API Key 없이 'claude login'으로 인증${NC}"
     echo ""
 
+    local model
+    model=$(choose_anthropic_model)
+
     local max_tokens
     max_tokens=$(choose_max_tokens)
 
@@ -166,13 +186,13 @@ setup_c4e() {
 # Generated: $(date '+%Y-%m-%d %H:%M:%S')
 # 인증: OAuth/SSO (claude login)
 
+export ANTHROPIC_MODEL='${model}'
 export CLAUDE_CODE_MAX_OUTPUT_TOKENS=${max_tokens}
 
 # C4E 모드에서는 Bedrock 및 직접 API 관련 변수를 해제
 unset ANTHROPIC_API_KEY
 unset CLAUDE_CODE_USE_BEDROCK
 unset AWS_BEARER_TOKEN_BEDROCK
-unset ANTHROPIC_MODEL
 unset ANTHROPIC_DEFAULT_OPUS_MODEL
 unset ANTHROPIC_DEFAULT_SONNET_MODEL
 unset ANTHROPIC_DEFAULT_HAIKU_MODEL
@@ -218,6 +238,9 @@ setup_subscription() {
         fail "ANTHROPIC_API_KEY가 비어있습니다."
     fi
 
+    local model
+    model=$(choose_anthropic_model)
+
     local max_tokens
     max_tokens=$(choose_max_tokens)
 
@@ -227,12 +250,12 @@ setup_subscription() {
 # Generated: $(date '+%Y-%m-%d %H:%M:%S')
 
 export ANTHROPIC_API_KEY='${SUB_API_KEY}'
+export ANTHROPIC_MODEL='${model}'
 export CLAUDE_CODE_MAX_OUTPUT_TOKENS=${max_tokens}
 
 # Subscription 모드에서는 Bedrock 관련 변수를 해제
 unset CLAUDE_CODE_USE_BEDROCK
 unset AWS_BEARER_TOKEN_BEDROCK
-unset ANTHROPIC_MODEL
 unset ANTHROPIC_DEFAULT_OPUS_MODEL
 unset ANTHROPIC_DEFAULT_SONNET_MODEL
 unset ANTHROPIC_DEFAULT_HAIKU_MODEL
@@ -405,12 +428,17 @@ switch_to() {
     ln -sf "$env_file" "$ACTIVE_ENV"
     ensure_bashrc_hook
 
+    # 환경변수 즉시 적용
+    source "$ACTIVE_ENV"
+    ok "환경변수 적용 완료 (source $SHELL_RC)"
+
     echo ""
     echo -e "${GREEN}=================================================================${NC}"
     echo -e "${GREEN}   모드 전환 완료: ${label}${NC}"
     echo -e "${GREEN}=================================================================${NC}"
     echo ""
-    echo -e "  ${YELLOW}적용하려면 다음 명령을 실행하세요:${NC}"
+    echo -e "  ${DIM}새 터미널에서는 자동으로 적용됩니다.${NC}"
+    echo -e "  ${YELLOW}현재 터미널에 바로 적용하려면:${NC}"
     echo ""
     echo -e "    ${BOLD}source $SHELL_RC${NC}"
     echo ""
