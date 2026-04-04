@@ -1,15 +1,29 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Kiro CLI Global Skills Installer
+# Kiro CLI Skills Installer
 # Works on macOS and Linux
-# Usage: bash install-skills.sh
+# Usage: bash 05-install-skills.sh [--local]
+#   --local   Install to .kiro/ in current directory (project-level)
+#   (default) Install to ~/.kiro/ (global)
 
-KIRO_DIR="${HOME}/.kiro"
+INSTALL_MODE="global"
+if [[ "${1:-}" == "--local" ]]; then
+  INSTALL_MODE="local"
+fi
+
+if [[ "$INSTALL_MODE" == "local" ]]; then
+  KIRO_DIR=".kiro"
+  SKILL_RESOURCE="skill://.kiro/skills/**/SKILL.md"
+else
+  KIRO_DIR="${HOME}/.kiro"
+  SKILL_RESOURCE="skill://~/.kiro/skills/**/SKILL.md"
+fi
+
 SKILLS_DIR="${KIRO_DIR}/skills"
 AGENTS_DIR="${KIRO_DIR}/agents"
 
-echo "🔧 Installing Kiro CLI global skills..."
+echo "🔧 Installing Kiro CLI skills (${INSTALL_MODE})..."
 echo "   Target: ${SKILLS_DIR}"
 echo ""
 
@@ -2284,11 +2298,11 @@ Set `ENABLE_TF_OPERATIONS=true` for destructive operations (apply/destroy).
 After changing env vars, restart the Docker container.
 EOF
 
-# Create global agent
-cat > "${AGENTS_DIR}/powers.json" << 'AGENT_EOF'
+# Create agent
+cat > "${AGENTS_DIR}/powers.json" << AGENT_EOF
 {
   "name": "powers",
-  "description": "Agent with all powers and skills loaded on-demand globally",
+  "description": "Agent with all powers and skills loaded on-demand (${INSTALL_MODE})",
   "tools": [
     "read",
     "write",
@@ -2301,22 +2315,31 @@ cat > "${AGENTS_DIR}/powers.json" << 'AGENT_EOF'
     "todo",
     "delegate",
     "grep",
-    "glob"
+    "glob",
+    "code",
+    "session",
+    "web_fetch",
+    "web_search"
   ],
   "resources": [
-    "skill://~/.kiro/skills/**/SKILL.md"
+    "${SKILL_RESOURCE}"
   ]
 }
 AGENT_EOF
 
 TOTAL=$(find "${SKILLS_DIR}" -name "SKILL.md" | wc -l | tr -d ' ')
 echo ""
-echo "🎉 Done! ${TOTAL} skills installed globally."
+echo "🎉 Done! ${TOTAL} skills installed (${INSTALL_MODE})."
 echo ""
 echo "Usage:"
 echo "  kiro-cli chat --agent powers   Start chat with powers agent"
 echo "  /agent powers                  Switch to powers agent in chat"
 echo "  /context show                  See loaded skills"
 echo ""
-echo "To make it default:"
-echo "  kiro-cli settings chat.defaultAgent powers"
+if [[ "$INSTALL_MODE" == "global" ]]; then
+  echo "To make it default:"
+  echo "  kiro-cli settings chat.defaultAgent powers"
+else
+  echo "Note: Project-level install. To avoid conflicts with a global"
+  echo "      'powers' agent, rename or remove ~/.kiro/agents/powers.json"
+fi
