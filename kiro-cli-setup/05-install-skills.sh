@@ -2289,6 +2289,20 @@ cat > "${AGENTS_DIR}/powers.json" << 'AGENT_EOF'
 {
   "name": "powers",
   "description": "Agent with all powers and skills loaded on-demand globally",
+  "tools": [
+    "read",
+    "write",
+    "shell",
+    "aws",
+    "report",
+    "introspect",
+    "knowledge",
+    "thinking",
+    "todo",
+    "delegate",
+    "grep",
+    "glob"
+  ],
   "resources": [
     "skill://~/.kiro/skills/**/SKILL.md"
   ]
@@ -2300,8 +2314,9 @@ echo ""
 echo "🎉 Done! ${TOTAL} skills installed globally."
 echo ""
 echo "Usage:"
-echo "  /agent powers          Switch to powers agent"
-echo "  /context show           See loaded skills"
+echo "  kiro-cli chat --agent powers   Start chat with powers agent"
+echo "  /agent powers                  Switch to powers agent in chat"
+echo "  /context show                  See loaded skills"
 echo ""
 echo "To make it default:"
 echo "  kiro-cli settings chat.defaultAgent powers"
