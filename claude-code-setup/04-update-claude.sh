@@ -11,8 +11,8 @@ echo ""
 # 업데이트 실행
 echo "업데이트 중..."
 if [[ "$(uname)" == "Darwin" ]]; then
-    # macOS: brew로 설치한 경우 brew upgrade, npm인 경우 sudo 불필요할 수 있음
-    if brew list --formula | grep -q "claude-code" 2>/dev/null; then
+    # macOS: brew (formula 또는 cask)로 설치한 경우 brew upgrade, 아니면 npm
+    if brew list --cask claude-code &>/dev/null || brew list --formula claude-code &>/dev/null; then
         brew upgrade claude-code
     else
         npm update -g @anthropic-ai/claude-code
