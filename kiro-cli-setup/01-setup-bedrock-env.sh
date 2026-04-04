@@ -1,10 +1,10 @@
 #!/bin/bash
 
-# Kiro CLI + Amazon Bedrock bashrc 설정 스크립트
+# Kiro CLI + Amazon Bedrock 환경 설정 스크립트
 
 BASHRC_FILE="$HOME/.bashrc"
 
-echo "=== Kiro CLI + Amazon Bedrock bashrc 설정 ==="
+echo "=== Kiro CLI + Amazon Bedrock 환경 설정 ==="
 echo
 
 # AWS_BEARER_TOKEN_BEDROCK 값 입력받기
@@ -37,6 +37,7 @@ echo "선택된 리전: $SELECTED_REGION"
 
 # 기존 설정 확인
 if grep -q "# Kiro CLI + Amazon Bedrock 설정" "$BASHRC_FILE" 2>/dev/null; then
+    echo
     echo "기존 Kiro CLI + Bedrock 설정이 발견되었습니다."
     read -p "기존 설정을 덮어쓰시겠습니까? (y/n): " OVERWRITE
     if [ "$OVERWRITE" = "y" ] || [ "$OVERWRITE" = "Y" ]; then
@@ -58,6 +59,13 @@ export AWS_REGION='${SELECTED_REGION}'
 EOF
 
 echo
-echo "bashrc에 설정이 추가되었습니다."
-echo "설정을 적용하려면 다음 명령어를 실행하세요:"
+echo "=== 설정 완료 ==="
+echo "  리전: $SELECTED_REGION"
+echo "  토큰: 설정됨"
+echo
+echo "설정을 적용하려면:"
 echo "  source ~/.bashrc"
+echo
+echo "모델 선택은 Kiro CLI 안에서 진행하세요:"
+echo "  /model                          사용 가능한 모델 목록에서 선택"
+echo "  /model set-current-as-default   선택한 모델을 기본값으로 저장"

@@ -44,6 +44,12 @@ Linux (EC2/Amazon Linux) 및 macOS 환경 모두 지원합니다.
 05-setup-custom-plugin.sh      커스텀 플러그인 설치 (선택)
         |
         v
+06-switch-mode.sh              모드 전환 (선택)
+        |
+        v
+07-setup-aws-skills.sh         AWS Skills 36개 설치
+        |
+        v
    claude                       Claude Code 세션에서 /init-project 실행
 ```
 
@@ -258,6 +264,40 @@ source ~/.zshrc
 
 ---
 
+## 07-setup-aws-skills.sh
+
+[aws-skills-for-claude-code](https://github.com/whchoi98/aws-skills-for-claude-code) 리포지토리에서 36개 AWS 스킬을 설치합니다.
+
+**실행:**
+```bash
+bash 07-setup-aws-skills.sh
+```
+
+**동작:**
+1. 리포지토리를 `~/.claude/aws-skills-for-claude-code/`에 클론 (이미 있으면 `git pull`)
+2. `.kiro/skills/` 내 36개 SKILL.md를 `~/.claude/skills/`로 복사
+3. 재실행 시 최신 버전으로 자동 업데이트
+
+**설치되는 스킬 (36개):**
+
+| 카테고리 | 스킬 |
+|----------|------|
+| AWS 서비스 (16) | aws-agentcore, aws-amplify, aws-cloudwatch, aws-cost, aws-data, aws-healthomics, aws-iac, aws-iam, aws-infra, aws-messaging, aws-sam, aws-security, cloud-architect, cloudwatch-appsignals, saas-builder, strands |
+| 마이그레이션 (5) | arm-soc-migration, aws-graviton-migration, aws-mcp, aws-observability, gcp-aws-migrate |
+| 외부 서비스 (9) | checkout, datadog, dynatrace, figma, neon, postman, stackgen, stripe, terraform |
+| 개발 워크플로우 (6) | code-review, power-builder, refactor, release, spark-troubleshooting, sync-docs |
+
+**사용법:**
+```bash
+# 수동 호출
+/aws-cloudwatch
+/terraform
+
+# 또는 대화에서 키워드 언급 시 자동 활성화
+```
+
+---
+
 ## 빠른 시작 (전체 흐름)
 
 ```bash
@@ -280,7 +320,10 @@ bash 05-setup-custom-plugin.sh
 # 6. 구독형 ↔ Bedrock 모드 전환 (필요 시)
 bash 06-switch-mode.sh
 
-# 7. Claude Code 세션에서 프로젝트 초기화
+# 7. AWS Skills 36개 설치
+bash 07-setup-aws-skills.sh
+
+# 8. Claude Code 세션에서 프로젝트 초기화
 claude
 # 세션 내에서: /init-project ./my-project
 ```

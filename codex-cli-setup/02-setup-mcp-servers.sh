@@ -1,15 +1,13 @@
 #!/bin/bash
 ###############################################################################
-# Kiro CLI - AWS MCP 서버 설정 스크립트
+# Codex CLI - AWS MCP 서버 설정 스크립트
 #
-# ~/.kiro/settings/mcp.json 에 MCP 서버를 등록합니다.
+# ~/.codex/mcp.json 에 MCP 서버를 등록합니다.
 #
 # [MCP 서버]
 #   awslabs-terraform-mcp-server      : Terraform/Terragrunt AWS 인프라 개발
+#   awslabs-core-mcp-server           : AWS API, Cost Explorer, 다이어그램, 가격 분석
 #   bedrock-agentcore-mcp-server      : Bedrock AgentCore Gateway, Memory, Runtime
-#
-# Note: AWS API, Cost Explorer, Pricing, Diagram 도구는 Kiro CLI에 빌트인되어 있어
-#       별도 MCP 서버(core-mcp-server) 설치가 불필요합니다.
 ###############################################################################
 
 set -euo pipefail
@@ -25,7 +23,7 @@ ok()    { echo -e "${GREEN}[ OK ]${NC} $*"; }
 warn()  { echo -e "${YELLOW}[WARN]${NC} $*"; }
 fail()  { echo -e "${RED}[FAIL]${NC} $*"; exit 1; }
 
-MCP_DIR="$HOME/.kiro/settings"
+MCP_DIR="$HOME/.codex"
 MCP_FILE="$MCP_DIR/mcp.json"
 
 ###############################################################################
@@ -33,10 +31,10 @@ MCP_FILE="$MCP_DIR/mcp.json"
 ###############################################################################
 info "=== 사전 요구사항 확인 ==="
 
-if command -v kiro-cli >/dev/null 2>&1; then
-    ok "kiro-cli: $(kiro-cli --version 2>&1 | head -1)"
+if command -v codex >/dev/null 2>&1; then
+    ok "codex CLI: $(codex --version 2>&1 | head -1)"
 else
-    fail "kiro-cli가 설치되어 있지 않습니다."
+    warn "codex CLI가 설치되어 있지 않습니다. 03-update-codex.sh로 설치하세요."
 fi
 
 if command -v uvx >/dev/null 2>&1; then
@@ -96,6 +94,17 @@ NEW_SERVERS=$(cat <<JSONEOF
       "disabled": false,
       "_description": "Terraform/Terragrunt AWS 인프라 개발"
     },
+    "awslabs-core-mcp-server": {
+      "command": "${UVX_PATH}",
+      "args": ["awslabs.core-mcp-server@latest"],
+      "env": {
+        "FASTMCP_LOG_LEVEL": "ERROR",
+        "aws-foundation": "true",
+        "solutions-architect": "true"
+      },
+      "disabled": false,
+      "_description": "AWS API, Cost Explorer, 다이어그램, 가격 분석"
+    },
     "bedrock-agentcore-mcp-server": {
       "command": "${UVX_PATH}",
       "args": ["awslabs.amazon-bedrock-agentcore-mcp-server@latest"],
@@ -146,10 +155,9 @@ else
 fi
 
 echo ""
-ok "설정이 완료되었습니다! Kiro CLI를 재시작하면 적용됩니다."
+ok "설정이 완료되었습니다! Codex CLI를 재시작하면 적용됩니다."
 echo ""
-echo "  [MCP 서버] 2개"
+echo "  [MCP 서버] 3개"
 echo "    awslabs-terraform-mcp-server      : Terraform/Terragrunt AWS 인프라 개발"
+echo "    awslabs-core-mcp-server           : AWS API, Cost Explorer, 다이어그램, 가격 분석"
 echo "    bedrock-agentcore-mcp-server      : Bedrock AgentCore Gateway, Memory, Runtime"
-echo ""
-echo "  Note: AWS API, Cost Explorer, Pricing, Diagram은 Kiro CLI 빌트인 도구입니다."
