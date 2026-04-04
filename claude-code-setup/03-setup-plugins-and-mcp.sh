@@ -2,7 +2,7 @@
 ###############################################################################
 # Claude Code - 플러그인 + AWS MCP 서버 통합 설정 스크립트
 #
-# [플러그인] claude-plugins-official (26개) + agent-plugins-for-aws (1개)
+# [플러그인] claude-plugins-official (48개) + agent-plugins-for-aws (1개)
 # [MCP 서버] awslabs-terraform-mcp-server
 #            awslabs-core-mcp-server
 #            bedrock-agentcore-mcp-server
@@ -86,12 +86,12 @@ fi
 echo ""
 
 ###############################################################################
-# 3. claude-plugins-official 플러그인 설치 (26개)
+# 3. claude-plugins-official 플러그인 설치 (48개)
 ###############################################################################
-info "=== claude-plugins-official 플러그인 설치 (26개) ==="
+info "=== claude-plugins-official 플러그인 설치 (48개) ==="
 
 OFFICIAL_PLUGINS=(
-    # 개발 워크플로우
+    # 개발 워크플로우 (12)
     "commit-commands"
     "code-review"
     "code-simplifier"
@@ -101,17 +101,28 @@ OFFICIAL_PLUGINS=(
     "plugin-dev"
     "agent-sdk-dev"
     "claude-code-setup"
+    "hookify"
+    "mcp-server-dev"
+    "skill-creator"
 
-    # 프론트엔드 / 디자인
+    # 프론트엔드 / 디자인 (1)
     "frontend-design"
 
-    # LSP (언어 서버)
+    # LSP 언어 서버 (12)
     "pyright-lsp"
     "typescript-lsp"
     "gopls-lsp"
     "jdtls-lsp"
+    "clangd-lsp"
+    "csharp-lsp"
+    "kotlin-lsp"
+    "lua-lsp"
+    "php-lsp"
+    "ruby-lsp"
+    "rust-analyzer-lsp"
+    "swift-lsp"
 
-    # 외부 서비스 연동 (external_plugins)
+    # 외부 서비스 연동 - external_plugins (14)
     "context7"
     "playwright"
     "slack"
@@ -119,13 +130,24 @@ OFFICIAL_PLUGINS=(
     "linear"
     "supabase"
     "serena"
+    "github"
+    "gitlab"
+    "asana"
+    "discord"
+    "firebase"
+    "greptile"
+    "telegram"
 
-    # 유틸리티 / 스타일
+    # 유틸리티 / 스타일 (9)
     "ralph-loop"
     "superpowers"
     "qodo-skills"
     "explanatory-output-style"
+    "learning-output-style"
     "security-guidance"
+    "playground"
+    "math-olympiad"
+    "laravel-boost"
 )
 
 TOTAL=${#OFFICIAL_PLUGINS[@]}
@@ -210,19 +232,24 @@ claude mcp list 2>&1
 echo ""
 ok "모든 설정이 완료되었습니다! Claude Code를 재시작하면 적용됩니다."
 echo ""
-echo "  [플러그인 - claude-plugins-official] 26개"
-echo "    개발 워크플로우 : commit-commands, code-review, code-simplifier,"
-echo "                      feature-dev, pr-review-toolkit, claude-md-management,"
-echo "                      plugin-dev, agent-sdk-dev, claude-code-setup"
-echo "    프론트엔드      : frontend-design"
-echo "    LSP             : pyright-lsp, typescript-lsp, gopls-lsp, jdtls-lsp"
-echo "    외부 서비스     : context7, playwright, slack, stripe,"
-echo "                      linear, supabase, serena"
-echo "    유틸리티        : ralph-loop, superpowers, qodo-skills,"
-echo "                      explanatory-output-style, security-guidance"
+echo "  [플러그인 - claude-plugins-official] 48개"
+echo "    개발 워크플로우 (12) : commit-commands, code-review, code-simplifier,"
+echo "                           feature-dev, pr-review-toolkit, claude-md-management,"
+echo "                           plugin-dev, agent-sdk-dev, claude-code-setup,"
+echo "                           hookify, mcp-server-dev, skill-creator"
+echo "    프론트엔드 (1)       : frontend-design"
+echo "    LSP (12)             : pyright, typescript, gopls, jdtls, clangd,"
+echo "                           csharp, kotlin, lua, php, ruby, rust-analyzer, swift"
+echo "    외부 서비스 (14)     : context7, playwright, slack, stripe, linear,"
+echo "                           supabase, serena, github, gitlab, asana,"
+echo "                           discord, firebase, greptile, telegram"
+echo "    유틸리티 (9)         : ralph-loop, superpowers, qodo-skills,"
+echo "                           explanatory-output-style, learning-output-style,"
+echo "                           security-guidance, playground, math-olympiad,"
+echo "                           laravel-boost"
 echo ""
 echo "  [플러그인 - agent-plugins-for-aws] 1개"
-echo "    deploy-on-aws   : awsiac, awsknowledge, awspricing"
+echo "    deploy-on-aws        : awsiac, awsknowledge, awspricing"
 echo ""
 echo "  [MCP 서버] 3개"
 echo "    awslabs-terraform-mcp-server      : Terraform/Terragrunt AWS 인프라 개발"
