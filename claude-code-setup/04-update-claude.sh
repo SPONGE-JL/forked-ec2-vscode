@@ -4,7 +4,7 @@ echo "=== Claude Code 업데이트 시작 ==="
 echo ""
 
 # 현재 버전 확인 (업데이트 전후 비교용)
-OLD_VERSION=$(claude --version 2>/dev/null | head -1 | grep -oP '[\d]+\.[\d]+\.[\d]+' || echo "unknown")
+OLD_VERSION=$(claude --version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || echo "unknown")
 echo "현재 버전: $OLD_VERSION"
 echo ""
 
@@ -35,7 +35,7 @@ else
 fi
 
 # 업데이트 후 버전 확인
-NEW_VERSION=$(claude --version 2>/dev/null | head -1 | grep -oP '[\d]+\.[\d]+\.[\d]+' || echo "unknown")
+NEW_VERSION=$(claude --version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || echo "unknown")
 echo ""
 echo "업데이트 완료! 새 버전: $NEW_VERSION"
 echo ""
@@ -50,9 +50,17 @@ else
     # GitHub Releases API에서 해당 버전의 릴리스 노트 가져오기
     RELEASE_BODY=""
     if command -v curl &>/dev/null; then
-        RELEASE_BODY=$(curl -sf --max-time 10 \
+        RELEASE_JSON=$(curl -sf --max-time 10 \
             "https://api.github.com/repos/anthropics/claude-code/releases/tags/v${NEW_VERSION}" \
-            2>/dev/null | grep -oP '"body"\s*:\s*"\K(([^"\\]|\\.)*)' || true)
+            2>/dev/null || true)
+        if [ -n "$RELEASE_JSON" ]; then
+            # python3이 있으면 JSON 파싱, 없으면 sed로 추출
+            if command -v python3 &>/dev/null; then
+                RELEASE_BODY=$(echo "$RELEASE_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin).get('body',''))" 2>/dev/null || true)
+            else
+                RELEASE_BODY=$(echo "$RELEASE_JSON" | sed -n 's/.*"body"[[:space:]]*:[[:space:]]*"//p' | sed 's/"[[:space:]]*$//' | sed 's/\\r\\n/\n/g; s/\\n/\n/g' || true)
+            fi
+        fi
     fi
 
     if [ -n "$RELEASE_BODY" ]; then
