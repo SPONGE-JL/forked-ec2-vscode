@@ -1,10 +1,152 @@
 #!/bin/bash
 
+# ─────────────────────────────────────────────────
+# Claude Code 업데이트 / 롤백 스크립트
+# 사용법:
+#   ./04-update-claude.sh              # 최신 버전으로 업데이트
+#   ./04-update-claude.sh --rollback 2.1.100  # 특정 버전으로 롤백
+#   ./04-update-claude.sh --list       # 설치 가능한 버전 목록 표시
+# ─────────────────────────────────────────────────
+
+# 릴리스 노트 가져오기 함수
+show_release_notes() {
+    local VERSION="$1"
+    echo ""
+    echo "📋 v${VERSION} 릴리스 노트:"
+    echo "────────────────────────────────────────"
+
+    local RELEASE_BODY=""
+    if command -v curl &>/dev/null; then
+        local RELEASE_JSON
+        RELEASE_JSON=$(curl -sf --max-time 10 \
+            "https://api.github.com/repos/anthropics/claude-code/releases/tags/v${VERSION}" \
+            2>/dev/null || true)
+        if [ -n "$RELEASE_JSON" ]; then
+            if command -v python3 &>/dev/null; then
+                RELEASE_BODY=$(echo "$RELEASE_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin).get('body',''))" 2>/dev/null || true)
+            else
+                RELEASE_BODY=$(echo "$RELEASE_JSON" | sed -n 's/.*"body"[[:space:]]*:[[:space:]]*"//p' | sed 's/"[[:space:]]*$//' | sed 's/\\r\\n/\n/g; s/\\n/\n/g' || true)
+            fi
+        fi
+    fi
+
+    if [ -n "$RELEASE_BODY" ]; then
+        echo "$RELEASE_BODY" \
+            | sed 's/\\r\\n/\n/g; s/\\n/\n/g; s/\\t/\t/g; s/\\"/"/g' \
+            | sed -n '/^##\|^- \|^\* \|^[0-9]\./p' \
+            | head -30
+    else
+        echo "  릴리스 노트를 가져올 수 없습니다."
+        echo "  → https://github.com/anthropics/claude-code/releases/tag/v${VERSION}"
+    fi
+    echo "────────────────────────────────────────"
+}
+
+# npm install 래퍼 (OS별 sudo 처리)
+npm_install_global() {
+    local PACKAGE="$1"
+    if [[ "$(uname)" == "Darwin" ]]; then
+        npm install -g "$PACKAGE"
+    else
+        sudo npm install -g "$PACKAGE"
+    fi
+}
+
+# npm update 래퍼 (OS별 sudo 처리)
+npm_update_global() {
+    local PACKAGE="$1"
+    if [[ "$(uname)" == "Darwin" ]]; then
+        npm update -g "$PACKAGE"
+    else
+        sudo npm update -g "$PACKAGE"
+    fi
+}
+
+# 현재 버전 확인
+OLD_VERSION=$(claude --version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || echo "unknown")
+
+# ─────────────────────────────────────────────────
+# --list: 설치 가능한 버전 목록
+# ─────────────────────────────────────────────────
+if [ "$1" = "--list" ]; then
+    echo "=== Claude Code 버전 목록 ==="
+    echo ""
+    echo "현재 설치된 버전: $OLD_VERSION"
+    echo ""
+    echo "📌 채널별 최신 버전:"
+    npm view @anthropic-ai/claude-code dist-tags --json 2>/dev/null \
+        | sed 's/[{}]//g; s/,/\n/g; s/"//g' \
+        | sed 's/^/  /' | grep -v '^[[:space:]]*$'
+    echo ""
+    echo "📦 최근 릴리스 버전 (최신순 20개):"
+    npm view @anthropic-ai/claude-code versions --json 2>/dev/null \
+        | python3 -c "import sys,json; [print(f'  {v}') for v in json.load(sys.stdin)[-20:]]" 2>/dev/null \
+        || npm view @anthropic-ai/claude-code versions --json 2>/dev/null | tail -22
+    echo ""
+    echo "사용법: $0 --rollback <버전>"
+    exit 0
+fi
+
+# ─────────────────────────────────────────────────
+# --rollback <version>: 특정 버전으로 롤백
+# ─────────────────────────────────────────────────
+if [ "$1" = "--rollback" ]; then
+    TARGET_VERSION="$2"
+
+    if [ -z "$TARGET_VERSION" ]; then
+        echo "❌ 롤백할 버전을 지정해주세요."
+        echo "   사용법: $0 --rollback <버전>"
+        echo "   예시:   $0 --rollback 2.1.100"
+        echo ""
+        echo "   버전 목록 확인: $0 --list"
+        exit 1
+    fi
+
+    echo "=== Claude Code 롤백 ==="
+    echo ""
+    echo "현재 버전:  $OLD_VERSION"
+    echo "대상 버전:  $TARGET_VERSION"
+    echo ""
+
+    # 대상 버전 존재 여부 확인
+    VERSION_EXISTS=$(npm view "@anthropic-ai/claude-code@${TARGET_VERSION}" version 2>/dev/null || true)
+    if [ -z "$VERSION_EXISTS" ]; then
+        echo "❌ 버전 ${TARGET_VERSION}을 찾을 수 없습니다."
+        echo "   $0 --list 로 설치 가능한 버전을 확인하세요."
+        exit 1
+    fi
+
+    if [ "$OLD_VERSION" = "$TARGET_VERSION" ]; then
+        echo "ℹ️  이미 v${TARGET_VERSION}이 설치되어 있습니다."
+        exit 0
+    fi
+
+    # macOS: brew cask 설치 여부 확인
+    if [[ "$(uname)" == "Darwin" ]] && brew list --cask claude-code &>/dev/null; then
+        echo "⚠️  brew cask로 설치되어 있어 먼저 제거합니다..."
+        brew uninstall --cask claude-code
+    fi
+
+    echo "v${TARGET_VERSION} 설치 중..."
+    npm_install_global "@anthropic-ai/claude-code@${TARGET_VERSION}"
+
+    NEW_VERSION=$(claude --version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || echo "unknown")
+    echo ""
+    echo "✅ 롤백 완료! $OLD_VERSION → $NEW_VERSION"
+
+    show_release_notes "$NEW_VERSION"
+
+    echo ""
+    echo "💡 최신 버전으로 복원하려면: $0"
+    echo "=== 롤백 완료 ==="
+    exit 0
+fi
+
+# ─────────────────────────────────────────────────
+# 기본 동작: 최신 버전으로 업데이트
+# ─────────────────────────────────────────────────
 echo "=== Claude Code 업데이트 시작 ==="
 echo ""
-
-# 현재 버전 확인 (업데이트 전후 비교용)
-OLD_VERSION=$(claude --version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || echo "unknown")
 echo "현재 버전: $OLD_VERSION"
 echo ""
 
@@ -38,52 +180,13 @@ fi
 NEW_VERSION=$(claude --version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || echo "unknown")
 echo ""
 echo "업데이트 완료! 새 버전: $NEW_VERSION"
-echo ""
 
 # 버전 변경 시 릴리스 노트(새 기능 요약) 출력
 if [ "$OLD_VERSION" = "$NEW_VERSION" ]; then
+    echo ""
     echo "ℹ️  이미 최신 버전입니다."
 else
-    echo "🆕 $OLD_VERSION → $NEW_VERSION 변경사항:"
-    echo "────────────────────────────────────────"
-
-    # GitHub Releases API에서 해당 버전의 릴리스 노트 가져오기
-    RELEASE_BODY=""
-    if command -v curl &>/dev/null; then
-        RELEASE_JSON=$(curl -sf --max-time 10 \
-            "https://api.github.com/repos/anthropics/claude-code/releases/tags/v${NEW_VERSION}" \
-            2>/dev/null || true)
-        if [ -n "$RELEASE_JSON" ]; then
-            # python3이 있으면 JSON 파싱, 없으면 sed로 추출
-            if command -v python3 &>/dev/null; then
-                RELEASE_BODY=$(echo "$RELEASE_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin).get('body',''))" 2>/dev/null || true)
-            else
-                RELEASE_BODY=$(echo "$RELEASE_JSON" | sed -n 's/.*"body"[[:space:]]*:[[:space:]]*"//p' | sed 's/"[[:space:]]*$//' | sed 's/\\r\\n/\n/g; s/\\n/\n/g' || true)
-            fi
-        fi
-    fi
-
-    if [ -n "$RELEASE_BODY" ]; then
-        # JSON 이스케이프 문자 복원 후 주요 내용만 추출
-        echo "$RELEASE_BODY" \
-            | sed 's/\\r\\n/\n/g; s/\\n/\n/g; s/\\t/\t/g; s/\\"/"/g' \
-            | sed -n '/^##\|^- \|^\* \|^[0-9]\./p' \
-            | head -30
-    else
-        # 릴리스 노트를 가져올 수 없는 경우 npm info에서 대체 정보 표시
-        echo "  릴리스 노트를 가져올 수 없습니다."
-        echo "  아래에서 직접 확인하세요:"
-        echo "  → https://github.com/anthropics/claude-code/releases/tag/v${NEW_VERSION}"
-        echo ""
-        # changelog 명령이 있으면 표시
-        if npm view @anthropic-ai/claude-code dist-tags --json &>/dev/null 2>&1; then
-            echo "  npm 채널별 최신 버전:"
-            npm view @anthropic-ai/claude-code dist-tags --json 2>/dev/null \
-                | grep -E '"(latest|beta|next)"' \
-                | sed 's/[",]//g; s/^/    /'
-        fi
-    fi
-    echo "────────────────────────────────────────"
+    show_release_notes "$NEW_VERSION"
 fi
 
 echo ""
